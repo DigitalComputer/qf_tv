@@ -253,12 +253,28 @@ sudo QF_API_HOST=https://demo.queueflow.ao ./scripts/setup-tv-box.sh
 
 Publish a tag first (`v1.0.0`) or set `QF_TV_VERSION` to an existing tag.
 
+### `libGLESv2.so.2: cannot open shared object` / app core dump
+
+Ubuntu 24.04 package names changed (not `libgles2-mesa`):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgl1 libegl1 libgles2 libgl1-mesa-dri
+# if that fails on 24.04:
+sudo apt-get install -y libgl1t64 libegl1t64 libgles2t64
+ldconfig -p | grep GLES
+sudo systemctl restart lightdm
+pgrep -a qf_tv
+```
+
+Or: `sudo bash -c "$(curl -fsSL .../install-flutter-runtime.sh)"`
+
 ### Black screen after reboot
 
 ```bash
 systemctl status lightdm
-systemctl status qf-tv
-journalctl -u qf-tv -n 50
+pgrep -a qf_tv
+journalctl -u lightdm -n 50
 ```
 
 Ensure tenant DNS resolves from the box:

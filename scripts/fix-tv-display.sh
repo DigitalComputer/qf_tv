@@ -28,6 +28,14 @@ apt-get install -y -qq \
   openbox lightdm unclutter dbus-x11 x11-xserver-utils \
   >/dev/null 2>&1 || true
 
+log "Flutter runtime (libGLESv2)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "$SCRIPT_DIR/install-flutter-runtime.sh" || {
+  apt-get install -y -qq libgl1 libegl1 libgles2 libgl1-mesa-dri 2>/dev/null \
+    || apt-get install -y -qq libgl1t64 libegl1t64 libgles2t64 2>/dev/null \
+    || true
+}
+
 # Force LightDM as display manager (not GDM)
 if [[ -x /usr/sbin/lightdm ]]; then
   echo '/usr/sbin/lightdm' >/etc/X11/default-display-manager

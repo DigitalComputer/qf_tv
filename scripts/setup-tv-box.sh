@@ -146,6 +146,11 @@ apt-get install -y -qq \
   openbox lightdm unclutter \
   dbus-x11 \
   libgtk-3-0 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
+  libgl1 libegl1 libgles2 libgl1-mesa-dri \
+  fonts-dejavu-core \
+  >/dev/null 2>&1 || apt-get install -y -qq \
+  libgtk-3-0t64 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
+  libgl1t64 libegl1t64 libgles2t64 libgl1-mesa-dri \
   fonts-dejavu-core \
   >/dev/null
 
