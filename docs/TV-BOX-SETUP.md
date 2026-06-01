@@ -178,10 +178,35 @@ After power returns: machine boots → auto-login → `qf-tv.service` starts →
 ## Day-2 operations
 
 ```bash
-# Status
+# Is the app running? (started by openbox on display :0, not TTY)
+pgrep -a qf_tv
+sudo -u kiosk DISPLAY=:0 xdpyinfo >/dev/null && echo "X OK"
+
+# GUI session
+systemctl status lightdm
+
+# Logs (if using journal from openbox / old systemd unit)
+journalctl -u lightdm -n 50
+```
+
+### `cannot open display: :0`
+
+X not running — common after SSH `systemctl restart qf-tv` without LightDM.
+
+```bash
+sudo bash /path/to/qf_tv/scripts/fix-tv-display.sh
+# or manually:
+sudo systemctl stop qf-tv
+sudo systemctl start lightdm
+```
+
+Plug **HDMI monitor** before starting GUI. TTY consoles never show the Flutter UI.
+
+```bash
+# Status (legacy unit may be disabled)
 systemctl status qf-tv
 
-# Logs
+# Logs when systemd managed the app
 journalctl -u qf-tv -f
 
 # Config

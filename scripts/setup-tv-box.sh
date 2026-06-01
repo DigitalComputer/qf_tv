@@ -174,13 +174,18 @@ greeter-hide-users=true
 EOF
 
 mkdir -p "${KIOSK_HOME}/.config/openbox"
-cat > "${KIOSK_HOME}/.config/openbox/autostart" <<'EOF'
+cat > "${KIOSK_HOME}/.config/openbox/autostart" <<EOF
 # Disable screen blanking / DPMS
 xset s off
 xset -dpms
 xset s noblank
 # Hide mouse cursor
 unclutter -idle 0 -root &
+# QueueFlow TV — must run inside kiosk X session (not before LightDM :0 exists)
+while true; do
+  ${INSTALL_DIR}/qf_tv
+  sleep 3
+done &
 EOF
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "${KIOSK_HOME}/.config"
 
@@ -243,38 +248,26 @@ ok "Config written"
 
 # ── 6. systemd ──────────────────────────────────────────────────────────────
 log "Installing systemd unit..."
+# Optional watchdog unit — app is started from openbox autostart once :0 exists.
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=QueueFlow TV Display (qf_tv)
-After=network-online.target graphical.target lightdm.service
-Wants=network-online.target
+Description=QueueFlow TV Display (qf_tv) — openbox starts the app; this unit is optional
+After=lightdm.service
+PartOf=lightdm.service
 
 [Service]
-Type=simple
-User=${KIOSK_USER}
-Environment=DISPLAY=:0
-Environment=XDG_RUNTIME_DIR=/run/user/${KIOSK_UID}
-Environment=XAUTHORITY=${KIOSK_HOME}/.Xauthority
-
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/qf_tv
-
-Restart=always
-RestartSec=3
-StartLimitIntervalSec=0
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=qf-tv
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
 
 [Install]
 WantedBy=graphical.target
 EOF
 
 systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}" >/dev/null
-systemctl restart "${SERVICE_NAME}" 2>/dev/null || systemctl start "${SERVICE_NAME}" 2>/dev/null || true
-ok "Service ${SERVICE_NAME} enabled"
+systemctl disable "${SERVICE_NAME}" >/dev/null 2>&1 || true
+systemctl stop "${SERVICE_NAME}" >/dev/null 2>&1 || true
+ok "qf_tv will start via openbox after LightDM (not systemd before :0)"
 
 # ── Done ────────────────────────────────────────────────────────────────────
 echo ""
