@@ -125,11 +125,17 @@ class ApiHttp {
     return _client!;
   }
 
-  static Future<http.Response> get(Uri uri, {Map<String, String>? headers}) =>
-      (await client()).get(uri, headers: headers);
+  static Future<http.Response> get(Uri uri, {Map<String, String>? headers}) async {
+    return (await client()).get(uri, headers: headers);
+  }
 
-  static Future<http.Response> post(Uri uri, {Map<String, String>? headers}) =>
-      (await client()).post(uri, headers: headers);
+  static Future<http.Response> post(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    return (await client()).post(uri, headers: headers, body: body);
+  }
 }
 
 class ApiService {
