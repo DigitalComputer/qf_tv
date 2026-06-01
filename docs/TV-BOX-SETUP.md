@@ -269,10 +269,23 @@ curl -s "$(
 )/api/v1/tv/ping"
 ```
 
-### API unreachable
+### API unreachable / HTML instead of JSON on ping
+
+Tenant TV API **only** answers on the instance host (`https://{slug}.queueflow.ao`), not `queueflow.ao` or raw IP.
+
+```bash
+# On API server (must return JSON with "success":true)
+curl -s -H "Host: administra-o-maianga.queueflow.ao" \
+  http://127.0.0.1:8000/api/v1/tv/ping
+
+# On TV box — api_host in config must match tenant slug
+cat /etc/qf-tv/config.json
+getent hosts administra-o-maianga.queueflow.ao
+```
 
 - Check firewall / DNS for `{tenant}.queueflow.ao`
-- Dev: add `/etc/hosts` → `127.0.0.1 demo.queueflow.ao` only if API is on same LAN
+- Dev LAN: `/etc/hosts` on TV → `192.168.30.168 administra-o-maianga.queueflow.ao`
+- After API deploy: `cd ~/qf_orchestrator && ./scripts/fix-dev-stack.sh` (rebuilds `qf-api`, seeds domains)
 
 ### Wrong display stuck
 
