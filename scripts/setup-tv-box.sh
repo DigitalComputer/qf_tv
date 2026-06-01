@@ -3,19 +3,23 @@
 #
 # Fresh Ubuntu Server 22.04/24.04 (or Desktop) → kiosk user + GUI + app + systemd
 #
-# Automatic (recommended — config from tenant API):
+# Automatic tenant (single instance):
 #   curl -fsSL https://demo.queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
+#
+# Automatic self-hosted (all instances from central registry):
+#   curl -fsSL https://queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
 #
 # Manual override:
 #   curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
 #     | sudo QF_API_HOST=https://demo.queueflow.ao bash
 #
 # Or local:
-#   sudo QF_API_HOST=https://demo.queueflow.ao ./scripts/setup-tv-box.sh
+#   sudo QF_CENTRAL_HOST=https://queueflow.ao ./scripts/setup-tv-box.sh
 #
 # Optional env (override API defaults):
-#   QF_API_HOST      — tenant API URL (required unless fetched via bootstrap)
-#   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest" (default: from API or latest)
+#   QF_CENTRAL_HOST  — central registry URL (self-hosted multi-instance)
+#   QF_API_HOST      — single tenant API URL
+#   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest"
 #   GITHUB_REPO      — default DigitalComputer/qf_tv
 #   KIOSK_USER       — default kiosk
 #   INSTALL_DIR      — default /opt/qf-tv
@@ -25,6 +29,7 @@
 set -euo pipefail
 
 QF_API_HOST="${QF_API_HOST:-}"
+QF_CENTRAL_HOST="${QF_CENTRAL_HOST:-}"
 QF_TV_VERSION="${QF_TV_VERSION:-}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
@@ -40,6 +45,27 @@ die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
 
 fetch_setup_config() {
+  if [[ -n "$QF_CENTRAL_HOST" ]]; then
+    local url="${QF_CENTRAL_HOST%/}/api/v1/tv/setup"
+    local cfg
+    cfg="$(curl -fsSL "$url" 2>/dev/null)" || {
+      log "Could not fetch ${url} — using env defaults"
+      return 0
+    }
+    if [[ -z "$QF_TV_VERSION" ]]; then
+      QF_TV_VERSION="$(printf '%s' "$cfg" | jq -r '.data.qf_tv_version // empty')"
+    fi
+    if [[ -z "$GITHUB_REPO" ]]; then
+      GITHUB_REPO="$(printf '%s' "$cfg" | jq -r '.data.github_repo // empty')"
+    fi
+    local central_from_api
+    central_from_api="$(printf '%s' "$cfg" | jq -r '.data.central_host // empty')"
+    if [[ -n "$central_from_api" ]]; then
+      QF_CENTRAL_HOST="$central_from_api"
+    fi
+    return 0
+  fi
+
   [[ -n "$QF_API_HOST" ]] || return 0
 
   local url="${QF_API_HOST%/}/api/v1/tv/setup"
@@ -67,7 +93,7 @@ fetch_setup_config
 QF_TV_VERSION="${QF_TV_VERSION:-latest}"
 GITHUB_REPO="${GITHUB_REPO:-DigitalComputer/qf_tv}"
 
-[[ -n "$QF_API_HOST" ]] || die "Set QF_API_HOST or run tenant bootstrap: curl -fsSL https://{tenant}/api/v1/tv/setup/bootstrap.sh | sudo bash"
+[[ -n "$QF_CENTRAL_HOST" || -n "$QF_API_HOST" ]] || die "Set QF_CENTRAL_HOST or QF_API_HOST, or run bootstrap: curl -fsSL https://queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -155,13 +181,23 @@ ok "App installed to ${INSTALL_DIR} (${TAG})"
 # ── 5. Config ───────────────────────────────────────────────────────────────
 log "Writing ${CONFIG_FILE}..."
 mkdir -p "$CONFIG_DIR"
-cat > "$CONFIG_FILE" <<EOF
+if [[ -n "$QF_CENTRAL_HOST" ]]; then
+  cat > "$CONFIG_FILE" <<EOF
+{
+  "central_host": "${QF_CENTRAL_HOST}",
+  "release": "${TAG}",
+  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+else
+  cat > "$CONFIG_FILE" <<EOF
 {
   "api_host": "${QF_API_HOST}",
   "release": "${TAG}",
   "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
+fi
 chmod 644 "$CONFIG_FILE"
 ok "Config written"
 
@@ -205,7 +241,12 @@ echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  QueueFlow TV box ready"
 echo ""
-echo "  API:     ${QF_API_HOST}"
+if [[ -n "$QF_CENTRAL_HOST" ]]; then
+  echo "  Central: ${QF_CENTRAL_HOST}"
+  echo "  Screens: ${QF_CENTRAL_HOST}/api/v1/tv/screens"
+else
+  echo "  API:     ${QF_API_HOST}"
+fi
 echo "  Release: ${TAG}"
 echo "  App:     ${INSTALL_DIR}"
 echo "  Config:  ${CONFIG_FILE}"

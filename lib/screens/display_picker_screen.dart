@@ -25,6 +25,15 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
   }
 
   Future<List<TvDisplay>> _loadDisplays() async {
+    if (await ConfigService.usesCentralDiscovery()) {
+      final central = await ConfigService.centralHost();
+      if (central == null || central.isEmpty) {
+        throw Exception('Central host não configurado');
+      }
+      final api = ApiService(central);
+      return api.getScreensFromCentral(central);
+    }
+
     final host = await ConfigService.apiHost();
     final api = ApiService(host);
     if (!await api.ping()) {
@@ -38,15 +47,27 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
     setState(() => _activating = true);
 
     try {
-      final host = await ConfigService.apiHost();
+      final host = display.apiHost.isNotEmpty
+          ? display.apiHost
+          : await ConfigService.apiHost();
       final api = ApiService(host);
       final result = await api.activate(display.id);
-      await StorageService.saveSession(result);
+      final session = ActivateResult(
+        displayId: result.displayId,
+        displayName: result.displayName,
+        branchId: result.branchId,
+        templateId: result.templateId,
+        token: result.token,
+        tenantId: result.tenantId,
+        apiHost: host,
+        reverb: result.reverb,
+      );
+      await StorageService.saveSession(session);
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => DisplayScreen(session: result),
+          builder: (_) => DisplayScreen(session: session),
         ),
       );
     } catch (e) {
@@ -190,9 +211,11 @@ class _DisplayCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                display.description.isNotEmpty
-                    ? display.description
-                    : 'Sem descrição',
+                display.tenantName.isNotEmpty
+                    ? display.tenantName
+                    : (display.description.isNotEmpty
+                        ? display.description
+                        : 'Sem descrição'),
                 style: QueueTheme.body,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,

@@ -12,8 +12,41 @@ const String kDefaultApiHost = String.fromEnvironment(
   defaultValue: 'https://demo.queueflow.ao',
 );
 
+const String kDefaultCentralHost = String.fromEnvironment(
+  'QF_CENTRAL_HOST',
+  defaultValue: '',
+);
+
 class ConfigService {
   static String? _cachedHost;
+  static String? _cachedCentralHost;
+
+  static Future<String?> centralHost() async {
+    if (_cachedCentralHost != null) return _cachedCentralHost;
+
+    try {
+      final file = File('/etc/qf-tv/config.json');
+      if (await file.exists()) {
+        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final host = json['central_host']?.toString();
+        if (host != null && host.isNotEmpty) {
+          _cachedCentralHost = host.endsWith('/') ? host.substring(0, host.length - 1) : host;
+          return _cachedCentralHost;
+        }
+      }
+    } catch (_) {}
+
+    if (kDefaultCentralHost.isNotEmpty) {
+      _cachedCentralHost = kDefaultCentralHost;
+    }
+
+    return _cachedCentralHost;
+  }
+
+  static Future<bool> usesCentralDiscovery() async {
+    final central = await centralHost();
+    return central != null && central.isNotEmpty;
+  }
 
   static Future<String> apiHost() async {
     if (_cachedHost != null) return _cachedHost!;
@@ -29,6 +62,12 @@ class ConfigService {
         }
       }
     } catch (_) {}
+
+    final central = await centralHost();
+    if (central != null && central.isNotEmpty) {
+      _cachedHost = central;
+      return _cachedHost!;
+    }
 
     _cachedHost = kDefaultApiHost;
     return _cachedHost!;
@@ -72,6 +111,16 @@ class ApiService {
         .timeout(_timeout)) as Map<String, dynamic>;
 
     return (data['displays'] as List)
+        .map((e) => TvDisplay.fromJson(e))
+        .toList();
+  }
+
+  Future<List<TvDisplay>> getScreensFromCentral(String centralHost) async {
+    final data = _unwrap(await http
+        .get(Uri.parse('$centralHost/api/v1/tv/screens'), headers: _headers())
+        .timeout(_timeout)) as Map<String, dynamic>;
+
+    return (data['screens'] as List)
         .map((e) => TvDisplay.fromJson(e))
         .toList();
   }
@@ -130,6 +179,7 @@ class StorageService {
   static const _kTemplateId = 'template_id';
   static const _kBranchId = 'branch_id';
   static const _kTenantId = 'tenant_id';
+  static const _kApiHost = 'api_host';
 
   static Future<void> saveSession(ActivateResult result) async {
     final p = await SharedPreferences.getInstance();
@@ -139,6 +189,9 @@ class StorageService {
     await p.setString(_kTemplateId, result.templateId);
     await p.setString(_kBranchId, result.branchId);
     await p.setString(_kTenantId, result.tenantId);
+    if (result.apiHost.isNotEmpty) {
+      await p.setString(_kApiHost, result.apiHost);
+    }
   }
 
   static Future<Map<String, String?>> getSession() async {
@@ -150,6 +203,7 @@ class StorageService {
       'template_id': p.getString(_kTemplateId),
       'branch_id': p.getString(_kBranchId),
       'tenant_id': p.getString(_kTenantId),
+      'api_host': p.getString(_kApiHost),
     };
   }
 
@@ -161,6 +215,7 @@ class StorageService {
     await p.remove(_kTemplateId);
     await p.remove(_kBranchId);
     await p.remove(_kTenantId);
+    await p.remove(_kApiHost);
   }
 }
 

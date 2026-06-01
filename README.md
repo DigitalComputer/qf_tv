@@ -7,16 +7,13 @@ Native Flutter Linux app for QueueFlow waiting-room TV displays (mini PC kiosk).
 Full guide: **[docs/TV-BOX-SETUP.md](docs/TV-BOX-SETUP.md)**
 
 ```bash
+# Self-hosted — all instances/screens from central
+curl -fsSL https://queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
+
+# Single tenant
 curl -fsSL https://demo.queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
 
 sudo reboot
-```
-
-Or manual env override:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
-  | sudo QF_API_HOST=https://demo.queueflow.ao bash
 ```
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
@@ -35,7 +32,9 @@ Host: `{tenant}.queueflow.ao` — set at install via `QF_API_HOST` → `/etc/qf-
 
 | Method | Path |
 |--------|------|
-| GET | `/api/v1/tv/setup` — provisioning JSON (api_host, version, repo, install_command) |
+| GET | `/api/v1/tv/registry` — **central only**: all instances + URLs |
+| GET | `/api/v1/tv/screens` — **central only**: all displays across instances |
+| GET | `/api/v1/tv/setup` — provisioning JSON (central or tenant) |
 | GET | `/api/v1/tv/setup/bootstrap.sh` — one-shot install script |
 | GET | `/api/v1/tv/ping` |
 | GET | `/api/v1/tv/displays` |

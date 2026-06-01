@@ -9,6 +9,8 @@ class TvDisplay {
   final int activeTickets;
   final bool isOnline;
   final String? templateId;
+  final String apiHost;
+  final String tenantName;
 
   TvDisplay({
     required this.id,
@@ -17,15 +19,19 @@ class TvDisplay {
     required this.activeTickets,
     required this.isOnline,
     this.templateId,
+    this.apiHost = '',
+    this.tenantName = '',
   });
 
   factory TvDisplay.fromJson(Map<String, dynamic> j) => TvDisplay(
-        id: j['id'] ?? '',
+        id: j['id']?.toString() ?? '',
         name: j['name'] ?? '',
         description: j['description'] ?? '',
         activeTickets: j['active_tickets'] ?? 0,
         isOnline: j['is_online'] ?? false,
-        templateId: j['template_id'],
+        templateId: j['template_id']?.toString(),
+        apiHost: j['api_host']?.toString() ?? '',
+        tenantName: j['tenant_name']?.toString() ?? '',
       );
 }
 
@@ -126,6 +132,7 @@ class ActivateResult {
   final String templateId;
   final String token;
   final String tenantId;
+  final String apiHost;
   final ReverbConfig reverb;
 
   ActivateResult({
@@ -135,16 +142,18 @@ class ActivateResult {
     required this.templateId,
     required this.token,
     required this.tenantId,
+    this.apiHost = '',
     required this.reverb,
   });
 
   factory ActivateResult.fromJson(Map<String, dynamic> j) => ActivateResult(
-        displayId: j['display_id'] ?? '',
+        displayId: j['display_id']?.toString() ?? '',
         displayName: j['display_name'] ?? '',
-        branchId: j['branch_id'] ?? '',
-        templateId: j['template_id'] ?? '',
+        branchId: j['branch_id']?.toString() ?? '',
+        templateId: j['template_id']?.toString() ?? '',
         token: j['token'] ?? '',
         tenantId: j['tenant_id']?.toString() ?? '',
+        apiHost: j['api_host']?.toString() ?? '',
         reverb: ReverbConfig.fromJson(j['reverb'] ?? {}),
       );
 }

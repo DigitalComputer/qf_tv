@@ -65,12 +65,15 @@ class _BootScreenState extends State<_BootScreen> {
     final displayId = session['display_id'];
     final token = session['token'];
     final displayName = session['display_name'];
+    final apiHost = session['api_host'];
 
     if (displayId == null || token == null || displayName == null) {
       return const DisplayPickerScreen();
     }
 
-    final host = await ConfigService.apiHost();
+    final host = (apiHost != null && apiHost.isNotEmpty)
+        ? apiHost
+        : await ConfigService.apiHost();
     final api = ApiService(host);
 
     try {
@@ -83,6 +86,7 @@ class _BootScreenState extends State<_BootScreen> {
           templateId: session['template_id'] ?? '',
           token: token,
           tenantId: boot.tenantId,
+          apiHost: host,
           reverb: boot.reverb,
         ),
       );
@@ -95,6 +99,7 @@ class _BootScreenState extends State<_BootScreen> {
           templateId: session['template_id'] ?? '',
           token: token,
           tenantId: session['tenant_id'] ?? '',
+          apiHost: host,
           reverb: ReverbConfig(
             key: '',
             host: 'localhost',

@@ -18,32 +18,38 @@ One script turns a **fresh Ubuntu Server** mini PC into a QueueFlow waiting-room
 
 ## One-command install (recommended)
 
-Run **on the TV box** as root — tenant URL baked in automatically:
+### Single tenant (SaaS / one instance)
 
 ```bash
 curl -fsSL https://demo.queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
-```
-
-Replace `demo.queueflow.ao` with your tenant domain. The API returns `api_host`, release repo/version, and pulls the setup script.
-
-JSON config (for custom tooling):
-
-```bash
-curl -fsSL https://demo.queueflow.ao/api/v1/tv/setup | jq .
-```
-
-Manual override (same script, env vars win over API defaults):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
-  | sudo QF_API_HOST=https://demo.queueflow.ao bash
-```
-
-Then reboot:
-
-```bash
 sudo reboot
 ```
+
+### Self-hosted — all instances from central registry
+
+TV box only needs central URL. Núcleo lists registered instances → each instance exposes screens → picker shows **all screens** auto-synced.
+
+```bash
+curl -fsSL https://queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
+sudo reboot
+```
+
+Central endpoints (on `queueflow.ao`):
+
+| Path | Purpose |
+|------|---------|
+| `GET /api/v1/tv/registry` | All registered instances + `api_host` URLs |
+| `GET /api/v1/tv/screens` | Aggregated displays from every instance |
+| `GET /api/v1/tv/setup` | Provisioning JSON |
+| `GET /api/v1/tv/setup/bootstrap.sh` | One-shot install script |
+
+Flow:
+
+```
+queueflow.ao/registry → instance URLs → each /tv/displays → unified picker
+```
+
+Re-run same bootstrap to update box later.
 
 After reboot: auto-login → display picker → select screen → fullscreen queue.
 
@@ -66,7 +72,8 @@ sudo reboot
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QF_API_HOST` | from API / bootstrap | Tenant API URL baked into `/etc/qf-tv/config.json` |
+| `QF_CENTRAL_HOST` | from API / bootstrap | Central registry URL (`/etc/qf-tv/config.json`) — multi-instance self-hosted |
+| `QF_API_HOST` | from API / bootstrap | Single tenant API URL |
 | `QF_TV_VERSION` | from API or `latest` | GitHub release tag, e.g. `v1.0.0` |
 | `GITHUB_REPO` | from API or `DigitalComputer/qf_tv` | Release source |
 | `KIOSK_USER` | `kiosk` | Linux user for auto-login |
