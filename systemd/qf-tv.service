@@ -1,0 +1,30 @@
+# /etc/systemd/system/qf-tv.service
+# Install: sudo cp systemd/qf-tv.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now qf-tv
+
+[Unit]
+Description=QueueFlow TV Display Terminal
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kiosk
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XAUTHORITY=/home/kiosk/.Xauthority
+
+WorkingDirectory=/opt/qf-tv
+ExecStart=/opt/qf-tv/qf_tv
+
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qf-tv
+
+[Install]
+WantedBy=graphical.target

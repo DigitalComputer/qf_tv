@@ -1,0 +1,209 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../models/models.dart';
+import '../services/services.dart';
+import '../theme.dart';
+import 'display_screen.dart';
+
+class DisplayPickerScreen extends StatefulWidget {
+  const DisplayPickerScreen({super.key});
+
+  @override
+  State<DisplayPickerScreen> createState() => _DisplayPickerScreenState();
+}
+
+class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
+  late Future<List<TvDisplay>> _future;
+  String? _error;
+  bool _activating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadDisplays();
+  }
+
+  Future<List<TvDisplay>> _loadDisplays() async {
+    final host = await ConfigService.apiHost();
+    final api = ApiService(host);
+    if (!await api.ping()) {
+      throw Exception('Servidor indisponível');
+    }
+    return api.getDisplays();
+  }
+
+  Future<void> _select(TvDisplay display) async {
+    if (_activating) return;
+    setState(() => _activating = true);
+
+    try {
+      final host = await ConfigService.apiHost();
+      final api = ApiService(host);
+      final result = await api.activate(display.id);
+      await StorageService.saveSession(result);
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => DisplayScreen(session: result),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _activating = false;
+        _error = 'Falha ao activar ecrã';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: QueueTheme.bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(48),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('QueueFlow TV',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w700,
+                      color: QueueTheme.textPrimary)),
+              const SizedBox(height: 8),
+              Text('Seleccione o ecrã desta sala',
+                  style: QueueTheme.body.copyWith(fontSize: 18)),
+              if (_error != null) ...[
+                const SizedBox(height: 16),
+                Text(_error!, style: const TextStyle(color: QueueTheme.red)),
+              ],
+              const SizedBox(height: 32),
+              Expanded(
+                child: FutureBuilder<List<TvDisplay>>(
+                  future: _future,
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                          child: CircularProgressIndicator(color: QueueTheme.amber));
+                    }
+                    if (snap.hasError) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Sem ligação ao servidor',
+                                style: QueueTheme.heading),
+                            const SizedBox(height: 16),
+                            OutlinedButton(
+                              onPressed: () => setState(() {
+                                _error = null;
+                                _future = _loadDisplays();
+                              }),
+                              child: const Text('Tentar novamente'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final displays = snap.data ?? [];
+                    if (displays.isEmpty) {
+                      return Center(
+                        child: Text('Nenhum ecrã activo',
+                            style: QueueTheme.body),
+                      );
+                    }
+
+                    return GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                        childAspectRatio: 1.4,
+                      ),
+                      itemCount: displays.length,
+                      itemBuilder: (_, i) => _DisplayCard(
+                        display: displays[i],
+                        loading: _activating,
+                        onTap: () => _select(displays[i]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DisplayCard extends StatelessWidget {
+  final TvDisplay display;
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _DisplayCard({
+    required this.display,
+    required this.loading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: QueueTheme.bgCard,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: loading ? null : onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: QueueTheme.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(display.name,
+                        style: GoogleFonts.spaceGrotesk(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: QueueTheme.textPrimary)),
+                  ),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: display.isOnline ? QueueTheme.green : QueueTheme.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                display.description.isNotEmpty
+                    ? display.description
+                    : 'Sem descrição',
+                style: QueueTheme.body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Spacer(),
+              Text('${display.activeTickets} tickets activos',
+                  style: QueueTheme.label.copyWith(color: QueueTheme.blue)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

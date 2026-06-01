@@ -1,0 +1,71 @@
+name: Release qf_tv
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev libblkid-dev liblzma-dev libstdc++-12-dev libglu1-mesa-dev
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release
+        run: |
+          flutter pub get
+          flutter build linux --release \
+            --dart-define=QF_API_HOST=https://demo.queueflow.ao
+          cd build/linux/x64/release/bundle
+          tar czf "${RUNNER_TEMP}/qf_tv-linux-x64.tar.gz" .
+          sha256sum "${RUNNER_TEMP}/qf_tv-linux-x64.tar.gz" \
+            > "${RUNNER_TEMP}/qf_tv-linux-x64.tar.gz.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: qf_tv ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            ${{ runner.temp }}/qf_tv-linux-x64.tar.gz
+            ${{ runner.temp }}/qf_tv-linux-x64.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
