@@ -17,12 +17,33 @@ GITHUB_REPO="${GITHUB_REPO:-DigitalComputer/qf_tv}"
 QF_TV_VERSION="${QF_TV_VERSION:-latest}"
 QF_API_HOST="${QF_API_HOST:-}"
 QF_API_IP="${QF_API_IP:-}"
+QF_API_PORT="${QF_API_PORT:-8000}"
 
 log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash $0"
+
+# http(s)://tenant.queueflow.ao → add :8000 when port omitted (LAN API)
+ensure_api_port() {
+  local h="${1%/}"
+  if [[ "$h" =~ ^https?://[^:/]+$ ]]; then
+    h="${h}:${QF_API_PORT}"
+  fi
+  printf '%s' "$h"
+}
+
+write_config() {
+  local host="$1"
+  mkdir -p "$CONFIG_DIR"
+  if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
+    printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > "$CONFIG_FILE"
+  else
+    printf '%s\n' "{\"api_host\":\"${host}\"}" > "$CONFIG_FILE"
+  fi
+  chmod 644 "$CONFIG_FILE"
+}
 
 if [[ "$QF_TV_VERSION" == "latest" ]]; then
   QF_TV_VERSION="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | jq -r '.tag_name')"
@@ -41,26 +62,25 @@ mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
 rm -rf "${INSTALL_DIR:?}"/*
 tar xzf "$TMP" -C "$INSTALL_DIR"
 rm -f "$TMP"
+[[ -f "${INSTALL_DIR}/qf_tv" ]] || die "qf_tv binary missing in release tarball"
 chmod +x "${INSTALL_DIR}/qf_tv"
 
 log "Install launcher"
 LAUNCHER="${INSTALL_DIR}/run-qf-tv.sh"
-LOCAL_KIOSK="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/run-qf-tv-kiosk.sh"
-if [[ -f "$LOCAL_KIOSK" ]]; then
-  install -m 755 "$LOCAL_KIOSK" "$LAUNCHER"
-else
-  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/run-qf-tv-kiosk.sh" -o "$LAUNCHER"
-  chmod 755 "$LAUNCHER"
-fi
+cat > "$LAUNCHER" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+INSTALL_DIR="${INSTALL_DIR:-/opt/qf-tv}"
+export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+exec "${INSTALL_DIR}/qf_tv" "$@"
+EOF
+chmod 755 "$LAUNCHER"
 
 if [[ -n "$QF_API_HOST" ]]; then
-  host="${QF_API_HOST%/}"
-  if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
-    printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > "$CONFIG_FILE"
-  else
-    printf '%s\n' "{\"api_host\":\"${host}\"}" > "$CONFIG_FILE"
-  fi
-  chmod 644 "$CONFIG_FILE"
+  host="$(ensure_api_port "${QF_API_HOST%/}")"
+  log "Config api_host=${host}"
+  write_config "$host"
+  QF_API_HOST="$host"
 fi
 
 if [[ -n "$QF_API_IP" && -n "$QF_API_HOST" ]]; then

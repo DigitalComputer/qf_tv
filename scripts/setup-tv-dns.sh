@@ -11,6 +11,7 @@ set -euo pipefail
 
 QF_API_IP="${QF_API_IP:-}"
 QF_API_HOST="${QF_API_HOST:-}"
+QF_API_PORT="${QF_API_PORT:-8000}"
 QF_CENTRAL_HOST="${QF_CENTRAL_HOST:-}"
 QF_EXTRA_HOSTS="${QF_EXTRA_HOSTS:-queueflow.ao}"
 
@@ -50,9 +51,17 @@ for h in $QF_EXTRA_HOSTS; do
   add_host "$h"
 done
 
+ensure_api_port() {
+  local h="${1%/}"
+  if [[ "$h" =~ ^https?://[^:/]+$ ]]; then
+    h="${h}:${QF_API_PORT}"
+  fi
+  printf '%s' "$h"
+}
+
 if [[ -n "$QF_API_HOST" ]]; then
   mkdir -p /etc/qf-tv
-  host="${QF_API_HOST%/}"
+  host="$(ensure_api_port "${QF_API_HOST%/}")"
   # LAN + HTTPS: Apache often uses self-signed / hosts-only DNS
   if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
     printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > /etc/qf-tv/config.json
