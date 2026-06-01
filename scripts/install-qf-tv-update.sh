@@ -43,8 +43,15 @@ tar xzf "$TMP" -C "$INSTALL_DIR"
 rm -f "$TMP"
 chmod +x "${INSTALL_DIR}/qf_tv"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-install -m 755 "${SCRIPT_DIR}/run-qf-tv-kiosk.sh" "${INSTALL_DIR}/run-qf-tv.sh"
+log "Install launcher"
+LAUNCHER="${INSTALL_DIR}/run-qf-tv.sh"
+LOCAL_KIOSK="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/run-qf-tv-kiosk.sh"
+if [[ -f "$LOCAL_KIOSK" ]]; then
+  install -m 755 "$LOCAL_KIOSK" "$LAUNCHER"
+else
+  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/run-qf-tv-kiosk.sh" -o "$LAUNCHER"
+  chmod 755 "$LAUNCHER"
+fi
 
 if [[ -n "$QF_API_HOST" ]]; then
   host="${QF_API_HOST%/}"
