@@ -3,24 +3,30 @@
 #
 # Fresh Ubuntu Server 22.04/24.04 (or Desktop) → kiosk user + GUI + app + systemd
 #
-# Usage (on the TV mini PC):
-#   curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh | sudo QF_API_HOST=https://demo.queueflow.ao bash
+# Automatic (recommended — config from tenant API):
+#   curl -fsSL https://demo.queueflow.ao/api/v1/tv/setup/bootstrap.sh | sudo bash
+#
+# Manual override:
+#   curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
+#     | sudo QF_API_HOST=https://demo.queueflow.ao bash
 #
 # Or local:
 #   sudo QF_API_HOST=https://demo.queueflow.ao ./scripts/setup-tv-box.sh
 #
-# Optional env:
-#   QF_API_HOST      — tenant API URL (required)
-#   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest" (default: latest)
+# Optional env (override API defaults):
+#   QF_API_HOST      — tenant API URL (required unless fetched via bootstrap)
+#   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest" (default: from API or latest)
 #   GITHUB_REPO      — default DigitalComputer/qf_tv
 #   KIOSK_USER       — default kiosk
 #   INSTALL_DIR      — default /opt/qf-tv
+#
+# Update box later: re-run same bootstrap or script with same QF_API_HOST.
 
 set -euo pipefail
 
 QF_API_HOST="${QF_API_HOST:-}"
-QF_TV_VERSION="${QF_TV_VERSION:-latest}"
-GITHUB_REPO="${GITHUB_REPO:-DigitalComputer/qf_tv}"
+QF_TV_VERSION="${QF_TV_VERSION:-}"
+GITHUB_REPO="${GITHUB_REPO:-}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/qf-tv}"
 CONFIG_DIR="/etc/qf-tv"
@@ -31,8 +37,37 @@ log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-[[ $EUID -eq 0 ]] || die "Run as root: sudo QF_API_HOST=... $0"
-[[ -n "$QF_API_HOST" ]] || die "Set QF_API_HOST (e.g. https://demo.queueflow.ao)"
+[[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
+
+fetch_setup_config() {
+  [[ -n "$QF_API_HOST" ]] || return 0
+
+  local url="${QF_API_HOST%/}/api/v1/tv/setup"
+  local cfg
+  cfg="$(curl -fsSL "$url" 2>/dev/null)" || {
+    log "Could not fetch ${url} — using env defaults"
+    return 0
+  }
+
+  if [[ -z "$QF_TV_VERSION" ]]; then
+    QF_TV_VERSION="$(printf '%s' "$cfg" | jq -r '.data.qf_tv_version // empty')"
+  fi
+  if [[ -z "$GITHUB_REPO" ]]; then
+    GITHUB_REPO="$(printf '%s' "$cfg" | jq -r '.data.github_repo // empty')"
+  fi
+  local api_from_api
+  api_from_api="$(printf '%s' "$cfg" | jq -r '.data.api_host // empty')"
+  if [[ -n "$api_from_api" ]]; then
+    QF_API_HOST="$api_from_api"
+  fi
+}
+
+fetch_setup_config
+
+QF_TV_VERSION="${QF_TV_VERSION:-latest}"
+GITHUB_REPO="${GITHUB_REPO:-DigitalComputer/qf_tv}"
+
+[[ -n "$QF_API_HOST" ]] || die "Set QF_API_HOST or run tenant bootstrap: curl -fsSL https://{tenant}/api/v1/tv/setup/bootstrap.sh | sudo bash"
 
 export DEBIAN_FRONTEND=noninteractive
 
