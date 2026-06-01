@@ -202,11 +202,19 @@ sudo systemctl start lightdm
 
 Plug **VGA or HDMI** monitor before starting GUI. TTY consoles never show the Flutter UI.
 
-### VGA monitor
+### VGA / HDMI monitor
 
-Same stack as HDMI — script runs `xrandr --auto` for every connected output (VGA-1, HDMI-1, etc.).
+Run `sudo -u kiosk DISPLAY=:0 xrandr` — only **connected** outputs get a signal.
 
-If picture wrong output: `sudo -u kiosk DISPLAY=:0 xrandr` then pick output name.
+| xrandr shows | What to do |
+|--------------|------------|
+| `HDMI-1 connected` | Plug monitor into **HDMI** on the box (best) |
+| `VGA-1 connected` | Native VGA works |
+| Only `eDP-1 connected` | Mini PC drives **internal panel only** — VGA cable not detected. Use **HDMI** or VGA dongle **on HDMI port** |
+
+Black external monitor + only `eDP-1` = UI is on built-in screen (if any), not on VGA.
+
+After plugging HDMI: `sudo systemctl restart lightdm`
 
 ### LightDM `inactive`
 

@@ -64,9 +64,22 @@ if ! grep -q 'qf_tv' "$OPENBOX_AUTOSTART" 2>/dev/null; then
 
 # Enable all connected outputs (VGA, HDMI, DP, etc.)
 xrandr --auto 2>/dev/null || true
+# Prefer external monitor (HDMI/DP/VGA) over built-in eDP (mini PC internal panel)
+external=""
 for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
-  xrandr --output "$out" --auto 2>/dev/null || true
+  case "$out" in
+    eDP*|LVDS*) xrandr --output "$out" --auto 2>/dev/null || true ;;
+    *)
+      external="$out"
+      xrandr --output "$out" --primary --auto 2>/dev/null || true
+      ;;
+  esac
 done
+if [[ -n "$external" ]]; then
+  for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+    case "$out" in eDP*|LVDS*) xrandr --output "$out" --off 2>/dev/null || true ;; esac
+  done
+fi
 
 # QueueFlow TV (started after X is up)
 while true; do
@@ -81,9 +94,22 @@ if ! grep -q 'xrandr' "$OPENBOX_AUTOSTART" 2>/dev/null; then
   cat >> "$OPENBOX_AUTOSTART" <<'AUTOSTART_TAIL'
 
 xrandr --auto 2>/dev/null || true
+# Prefer external monitor (HDMI/DP/VGA) over built-in eDP (mini PC internal panel)
+external=""
 for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
-  xrandr --output "$out" --auto 2>/dev/null || true
+  case "$out" in
+    eDP*|LVDS*) xrandr --output "$out" --auto 2>/dev/null || true ;;
+    *)
+      external="$out"
+      xrandr --output "$out" --primary --auto 2>/dev/null || true
+      ;;
+  esac
 done
+if [[ -n "$external" ]]; then
+  for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+    case "$out" in eDP*|LVDS*) xrandr --output "$out" --off 2>/dev/null || true ;; esac
+  done
+fi
 while true; do
   /opt/qf-tv/qf_tv
   sleep 3

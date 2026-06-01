@@ -182,11 +182,20 @@ xset -dpms
 xset s noblank
 # Hide mouse cursor
 unclutter -idle 0 -root &
-# VGA / HDMI / DP — turn on whatever is plugged in
+# Prefer HDMI/DP/VGA over built-in eDP (mini PC panel)
 xrandr --auto 2>/dev/null || true
+external=""
 for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
-  xrandr --output "\$out" --auto 2>/dev/null || true
+  case "\$out" in
+    eDP*|LVDS*) xrandr --output "\$out" --auto 2>/dev/null || true ;;
+    *) external="\$out"; xrandr --output "\$out" --primary --auto 2>/dev/null || true ;;
+  esac
 done
+if [ -n "\$external" ]; then
+  for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
+    case "\$out" in eDP*|LVDS*) xrandr --output "\$out" --off 2>/dev/null || true ;; esac
+  done
+fi
 # QueueFlow TV — must run inside kiosk X session (not before LightDM :0 exists)
 while true; do
   ${INSTALL_DIR}/qf_tv
