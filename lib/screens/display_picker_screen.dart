@@ -31,8 +31,9 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
       if (central == null || central.isEmpty) {
         throw Exception('Central host não configurado');
       }
-      final api = ApiService(central);
-      return api.getScreensFromCentral(central);
+      final host = await ApiService.resolveReachableHost(central);
+      _apiHost = host;
+      return ApiService(host).getScreensFromCentral(host);
     }
 
     final host = await ApiService.resolveReachableHost();

@@ -71,9 +71,9 @@ class _BootScreenState extends State<_BootScreen> {
       return const DisplayPickerScreen();
     }
 
-    final host = (apiHost != null && apiHost.isNotEmpty)
-        ? apiHost
-        : await ConfigService.apiHost();
+    final host = await ApiService.resolveReachableHost(
+      (apiHost != null && apiHost.isNotEmpty) ? apiHost : null,
+    );
     final api = ApiService(host);
 
     try {

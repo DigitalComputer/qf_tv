@@ -76,9 +76,9 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
   Future<void> _bootstrap() async {
     try {
-      final host = widget.session.apiHost.isNotEmpty
-          ? widget.session.apiHost
-          : await ConfigService.apiHost();
+      final host = await ApiService.resolveReachableHost(
+        widget.session.apiHost.isNotEmpty ? widget.session.apiHost : null,
+      );
       _api = ApiService(host);
 
       final boot = await _api.bootstrap(widget.session.token);

@@ -144,17 +144,60 @@ class ApiService {
   final String baseUrl;
   static const _timeout = Duration(seconds: 10);
 
-  /// Prefer config host; on LAN fall back to http://tenant.queueflow.ao:8000.
-  static Future<String> resolveReachableHost([String? preferred]) async {
-    final host = preferred ?? await ConfigService.apiHost();
-    if (await ApiService(host).ping()) return host;
+  /// Strip paths (/dashboard, …) — API base is scheme + host [+ port] only.
+  static String normalizeApiBaseUrl(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return s;
+    if (!s.contains('://')) {
+      s = 'https://$s';
+    }
+    final uri = Uri.parse(s);
+    if (uri.host.isEmpty) return raw.trim();
 
-    final fallback = _lanHttpFallback(host);
-    if (fallback != null && fallback != host && await ApiService(fallback).ping()) {
-      return fallback;
+    final scheme =
+        uri.scheme == 'http' || uri.scheme == 'https' ? uri.scheme : 'https';
+    final port = uri.hasPort ? uri.port : null;
+    if (port != null &&
+        !((scheme == 'http' && port == 80) || (scheme == 'https' && port == 443))) {
+      return Uri(scheme: scheme, host: uri.host, port: port).toString();
+    }
+    return '$scheme://${uri.host}';
+  }
+
+  /// Try hosts in order — LAN :8000 from config before https URLs from registry.
+  static Future<String> resolveReachableHost([String? preferred]) async {
+    final config = normalizeApiBaseUrl(await ConfigService.apiHost());
+    final primary = normalizeApiBaseUrl(preferred ?? config);
+    final candidates = <String>[];
+
+    void add(String? h) {
+      if (h == null || h.isEmpty) return;
+      final n = normalizeApiBaseUrl(h);
+      if (n.isNotEmpty && !candidates.contains(n)) candidates.add(n);
     }
 
-    throw Exception('Servidor indisponível ($host)');
+    final configUri = Uri.tryParse(config);
+    final primaryUri = Uri.tryParse(primary);
+
+    // /etc/qf-tv says http://tenant:8000 — use before https from central/registry
+    if (configUri != null &&
+        configUri.scheme == 'http' &&
+        configUri.port == 8000) {
+      add(config);
+      if (primaryUri != null && primaryUri.host == configUri.host) {
+        add(_lanHttpFallback(primary));
+      }
+    }
+
+    add(primary);
+    add(_lanHttpFallback(primary));
+    if (primary != config) add(config);
+
+    for (final host in candidates) {
+      if (await ApiService(host).ping()) return host;
+    }
+
+    throw Exception('Servidor indisponível ($primary)');
   }
 
   Map<String, String> _headers([String? token]) => {
@@ -182,9 +225,9 @@ class ApiService {
     return false;
   }
 
-  /// Dev/LAN: API on :8000 HTTP while config says https://tenant.queueflow.ao
+  /// Dev/LAN: API on :8000 HTTP while registry returns https://tenant.queueflow.ao
   static String? _lanHttpFallback(String url) {
-    final uri = Uri.tryParse(url);
+    final uri = Uri.tryParse(normalizeApiBaseUrl(url));
     if (uri == null || uri.host.isEmpty) return null;
     if (!uri.host.endsWith('.queueflow.ao')) return null;
     if (uri.scheme == 'http' && uri.port == 8000) return null;
