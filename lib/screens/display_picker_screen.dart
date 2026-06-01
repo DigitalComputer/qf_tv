@@ -16,6 +16,7 @@ class DisplayPickerScreen extends StatefulWidget {
 class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
   late Future<List<TvDisplay>> _future;
   String? _error;
+  String? _apiHost;
   bool _activating = false;
 
   @override
@@ -35,9 +36,10 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
     }
 
     final host = await ConfigService.apiHost();
+    _apiHost = host;
     final api = ApiService(host);
     if (!await api.ping()) {
-      throw Exception('Servidor indisponível');
+      throw Exception('Servidor indisponível ($host)');
     }
     return api.getDisplays();
   }
@@ -117,9 +119,16 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
                             Text('Sem ligação ao servidor',
                                 style: QueueTheme.heading),
                             const SizedBox(height: 16),
+                            if (_apiHost != null) ...[
+                              const SizedBox(height: 8),
+                              Text(_apiHost!,
+                                  style: QueueTheme.body.copyWith(fontSize: 14)),
+                            ],
+                            const SizedBox(height: 16),
                             OutlinedButton(
                               onPressed: () => setState(() {
                                 _error = null;
+                                ConfigService.clearCache();
                                 _future = _loadDisplays();
                               }),
                               child: const Text('Tentar novamente'),

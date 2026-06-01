@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
@@ -20,6 +21,38 @@ const String kDefaultCentralHost = String.fromEnvironment(
 class ConfigService {
   static String? _cachedHost;
   static String? _cachedCentralHost;
+  static bool? _cachedInsecureSsl;
+
+  static void clearCache() {
+    _cachedHost = null;
+    _cachedCentralHost = null;
+    _cachedInsecureSsl = null;
+    ApiHttp.reset();
+  }
+
+  static Future<bool> allowInsecureSsl() async {
+    if (_cachedInsecureSsl != null) return _cachedInsecureSsl!;
+
+    const fromEnv = bool.fromEnvironment('QF_ALLOW_INSECURE_SSL');
+    if (fromEnv) {
+      _cachedInsecureSsl = true;
+      return true;
+    }
+
+    try {
+      final file = File('/etc/qf-tv/config.json');
+      if (await file.exists()) {
+        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        if (json['allow_insecure_ssl'] == true) {
+          _cachedInsecureSsl = true;
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    _cachedInsecureSsl = false;
+    return false;
+  }
 
   static Future<String?> centralHost() async {
     if (_cachedCentralHost != null) return _cachedCentralHost;
@@ -74,6 +107,31 @@ class ConfigService {
   }
 }
 
+/// Shared HTTP client — optional TLS bypass for LAN dev (self-signed / hosts file).
+class ApiHttp {
+  static http.Client? _client;
+
+  static void reset() => _client = null;
+
+  static Future<http.Client> client() async {
+    if (_client != null) return _client!;
+    if (await ConfigService.allowInsecureSsl()) {
+      final io = HttpClient()
+        ..badCertificateCallback = (cert, host, port) => true;
+      _client = IOClient(io);
+    } else {
+      _client = http.Client();
+    }
+    return _client!;
+  }
+
+  static Future<http.Response> get(Uri uri, {Map<String, String>? headers}) =>
+      (await client()).get(uri, headers: headers);
+
+  static Future<http.Response> post(Uri uri, {Map<String, String>? headers}) =>
+      (await client()).post(uri, headers: headers);
+}
+
 class ApiService {
   ApiService(this.baseUrl);
 
@@ -96,7 +154,7 @@ class ApiService {
 
   Future<bool> ping() async {
     try {
-      final r = await http
+      final r = await ApiHttp
           .get(Uri.parse('$baseUrl/api/v1/tv/ping'), headers: _headers())
           .timeout(_timeout);
       return r.statusCode == 200;
@@ -106,7 +164,7 @@ class ApiService {
   }
 
   Future<List<TvDisplay>> getDisplays() async {
-    final data = _unwrap(await http
+    final data = _unwrap(await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/displays'), headers: _headers())
         .timeout(_timeout)) as Map<String, dynamic>;
 
@@ -116,7 +174,7 @@ class ApiService {
   }
 
   Future<List<TvDisplay>> getScreensFromCentral(String centralHost) async {
-    final data = _unwrap(await http
+    final data = _unwrap(await ApiHttp
         .get(Uri.parse('$centralHost/api/v1/tv/screens'), headers: _headers())
         .timeout(_timeout)) as Map<String, dynamic>;
 
@@ -126,7 +184,7 @@ class ApiService {
   }
 
   Future<ActivateResult> activate(String displayId) async {
-    final data = _unwrap(await http
+    final data = _unwrap(await ApiHttp
         .post(
           Uri.parse('$baseUrl/api/v1/tv/displays/$displayId/activate'),
           headers: _headers(),
@@ -137,7 +195,7 @@ class ApiService {
   }
 
   Future<QueueState> getQueue(String displayId, String token) async {
-    final data = _unwrap(await http
+    final data = _unwrap(await ApiHttp
         .get(
           Uri.parse('$baseUrl/api/v1/tv/displays/$displayId/queue'),
           headers: _headers(token),
@@ -148,7 +206,7 @@ class ApiService {
   }
 
   Future<DisplayTemplate> getTemplate(String templateId) async {
-    final r = await http
+    final r = await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/templates/$templateId'), headers: _headers())
         .timeout(_timeout);
 
@@ -158,7 +216,7 @@ class ApiService {
 
   Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId})>
       bootstrap(String token) async {
-    final data = _unwrap(await http
+    final data = _unwrap(await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/bootstrap'), headers: _headers(token))
         .timeout(_timeout)) as Map<String, dynamic>;
 

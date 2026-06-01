@@ -52,9 +52,15 @@ done
 
 if [[ -n "$QF_API_HOST" ]]; then
   mkdir -p /etc/qf-tv
-  printf '%s\n' "{\"api_host\":\"${QF_API_HOST%/}\"}" > /etc/qf-tv/config.json
+  host="${QF_API_HOST%/}"
+  # LAN + HTTPS: Apache often uses self-signed / hosts-only DNS
+  if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
+    printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > /etc/qf-tv/config.json
+  else
+    printf '%s\n' "{\"api_host\":\"${host}\"}" > /etc/qf-tv/config.json
+  fi
   chmod 644 /etc/qf-tv/config.json
-  echo "✓ /etc/qf-tv/config.json → ${QF_API_HOST%/}"
+  echo "✓ /etc/qf-tv/config.json → $(cat /etc/qf-tv/config.json)"
 fi
 
 echo "✓ DNS ready. Test: getent hosts $(url_hostname "${QF_API_HOST:-$QF_CENTRAL_HOST}")"
