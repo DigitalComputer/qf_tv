@@ -68,7 +68,30 @@ sudo reboot
 
 ---
 
-## Install options (environment variables)
+## LAN / dev (no public DNS for `*.queueflow.ao`)
+
+TV on local network cannot resolve tenant domain → map API server IP in `/etc/hosts`:
+
+```bash
+# Quick fix (run on TV box as root)
+sudo QF_API_IP=192.168.30.168 \
+  QF_API_HOST=https://administra-o-maianga.queueflow.ao \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-dns.sh)"
+
+getent hosts administra-o-maianga.queueflow.ao
+```
+
+Full install with DNS + app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
+  | sudo QF_API_IP=192.168.30.168 \
+       QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 bash
+```
+
+On API server set `QF_TV_DEV_API_IP=192.168.30.168` in `.env` — bootstrap script exports `QF_API_IP` automatically.
+
+Use `http://…:8000` when dev stack has no TLS; use `https://` only when nginx serves SSL on 443.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

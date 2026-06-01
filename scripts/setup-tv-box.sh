@@ -17,6 +17,7 @@
 #   sudo QF_CENTRAL_HOST=https://queueflow.ao ./scripts/setup-tv-box.sh
 #
 # Optional env (override API defaults):
+#   QF_API_IP        — LAN IP of API server → writes /etc/hosts (fix NXDOMAIN on TV LAN)
 #   QF_CENTRAL_HOST  — central registry URL (self-hosted multi-instance)
 #   QF_API_HOST      — single tenant API URL
 #   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest"
@@ -29,6 +30,7 @@
 set -euo pipefail
 
 QF_API_HOST="${QF_API_HOST:-}"
+QF_API_IP="${QF_API_IP:-}"
 QF_CENTRAL_HOST="${QF_CENTRAL_HOST:-}"
 QF_TV_VERSION="${QF_TV_VERSION:-}"
 GITHUB_REPO="${GITHUB_REPO:-}"
@@ -43,6 +45,44 @@ ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
+
+url_hostname() {
+  local raw="${1#*://}"
+  raw="${raw%%/*}"
+  raw="${raw%%:*}"
+  printf '%s' "$raw"
+}
+
+configure_local_dns() {
+  [[ -n "$QF_API_IP" ]] || return 0
+
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "${script_dir}/setup-tv-dns.sh" ]]; then
+    log "Mapping QueueFlow domains → ${QF_API_IP} (/etc/hosts)"
+    QF_API_HOST="$QF_API_HOST" QF_CENTRAL_HOST="$QF_CENTRAL_HOST" \
+      bash "${script_dir}/setup-tv-dns.sh"
+    ok "Local DNS configured"
+    return 0
+  fi
+
+  local host=""
+  if [[ -n "$QF_API_HOST" ]]; then
+    host="$(url_hostname "$QF_API_HOST")"
+  elif [[ -n "$QF_CENTRAL_HOST" ]]; then
+    host="$(url_hostname "$QF_CENTRAL_HOST")"
+  fi
+  [[ -n "$host" ]] || die "Set QF_API_HOST or QF_CENTRAL_HOST with QF_API_IP"
+
+  log "Mapping ${host} → ${QF_API_IP}"
+  grep -q "queueflow-tv-dns" /etc/hosts 2>/dev/null && \
+    sed -i '/queueflow-tv-dns/d' /etc/hosts || true
+  echo "${QF_API_IP} ${host} queueflow.ao # queueflow-tv-dns" >> /etc/hosts
+  ok "Local DNS configured"
+}
+
+# DNS before any curl to tenant domain
+configure_local_dns
 
 fetch_setup_config() {
   if [[ -n "$QF_CENTRAL_HOST" ]]; then
