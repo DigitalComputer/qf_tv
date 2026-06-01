@@ -142,7 +142,8 @@ log "Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
   curl jq ca-certificates \
-  xorg openbox lightdm unclutter \
+  xorg xserver-xorg-video-all x11-xserver-utils \
+  openbox lightdm unclutter \
   dbus-x11 \
   libgtk-3-0 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
   fonts-dejavu-core \
@@ -181,6 +182,11 @@ xset -dpms
 xset s noblank
 # Hide mouse cursor
 unclutter -idle 0 -root &
+# VGA / HDMI / DP — turn on whatever is plugged in
+xrandr --auto 2>/dev/null || true
+for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
+  xrandr --output "\$out" --auto 2>/dev/null || true
+done
 # QueueFlow TV — must run inside kiosk X session (not before LightDM :0 exists)
 while true; do
   ${INSTALL_DIR}/qf_tv

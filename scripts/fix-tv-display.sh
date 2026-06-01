@@ -23,13 +23,22 @@ systemctl stop qf-tv 2>/dev/null || true
 log "Ensure GUI stack"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq xorg openbox lightdm unclutter dbus-x11 >/dev/null 2>&1 || true
+apt-get install -y -qq \
+  xorg xserver-xorg-video-all \
+  openbox lightdm unclutter dbus-x11 x11-xserver-utils \
+  >/dev/null 2>&1 || true
 
+# Force LightDM as display manager (not GDM)
+if [[ -x /usr/sbin/lightdm ]]; then
+  echo '/usr/sbin/lightdm' >/etc/X11/default-display-manager
+fi
+systemctl disable gdm3 gdm 2>/dev/null || true
 systemctl set-default graphical.target
 systemctl enable lightdm
-systemctl start lightdm
+systemctl start lightdm || true
+systemctl isolate graphical.target 2>/dev/null || true
 
-log "Wait for display :0 (up to 90s — connect HDMI/monitor)"
+log "Wait for display :0 (up to 90s — VGA/HDMI monitor connected)"
 ready=0
 for _ in $(seq 1 90); do
   if [[ -S /tmp/.X11-unix/X0 ]] && sudo -u "$KIOSK_USER" DISPLAY=:0 xdpyinfo >/dev/null 2>&1; then
@@ -51,14 +60,35 @@ log "Ensure openbox starts qf_tv (kiosk session)"
 mkdir -p "$(dirname "$OPENBOX_AUTOSTART")"
 touch "$OPENBOX_AUTOSTART"
 if ! grep -q 'qf_tv' "$OPENBOX_AUTOSTART" 2>/dev/null; then
-  cat >> "$OPENBOX_AUTOSTART" <<EOF
+  cat >> "$OPENBOX_AUTOSTART" <<'AUTOSTART_TAIL'
+
+# Enable all connected outputs (VGA, HDMI, DP, etc.)
+xrandr --auto 2>/dev/null || true
+for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+  xrandr --output "$out" --auto 2>/dev/null || true
+done
 
 # QueueFlow TV (started after X is up)
 while true; do
-  ${INSTALL_DIR}/qf_tv
+  /opt/qf-tv/qf_tv
   sleep 3
 done &
-EOF
+AUTOSTART_TAIL
+fi
+# Rewrite full autostart if missing xrandr (older installs)
+if ! grep -q 'xrandr' "$OPENBOX_AUTOSTART" 2>/dev/null; then
+  sed -i '/^while true; do/,/^done &$/d' "$OPENBOX_AUTOSTART" 2>/dev/null || true
+  cat >> "$OPENBOX_AUTOSTART" <<'AUTOSTART_TAIL'
+
+xrandr --auto 2>/dev/null || true
+for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+  xrandr --output "$out" --auto 2>/dev/null || true
+done
+while true; do
+  /opt/qf-tv/qf_tv
+  sleep 3
+done &
+AUTOSTART_TAIL
 fi
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "${KIOSK_HOME}/.config"
 chmod +x "$OPENBOX_AUTOSTART"

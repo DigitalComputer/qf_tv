@@ -200,7 +200,25 @@ sudo systemctl stop qf-tv
 sudo systemctl start lightdm
 ```
 
-Plug **HDMI monitor** before starting GUI. TTY consoles never show the Flutter UI.
+Plug **VGA or HDMI** monitor before starting GUI. TTY consoles never show the Flutter UI.
+
+### VGA monitor
+
+Same stack as HDMI — script runs `xrandr --auto` for every connected output (VGA-1, HDMI-1, etc.).
+
+If picture wrong output: `sudo -u kiosk DISPLAY=:0 xrandr` then pick output name.
+
+### LightDM `inactive`
+
+```bash
+echo '/usr/sbin/lightdm' | sudo tee /etc/X11/default-display-manager
+sudo systemctl disable gdm3 2>/dev/null
+sudo systemctl set-default graphical.target
+sudo systemctl enable --now lightdm
+journalctl -u lightdm -n 40 --no-pager
+```
+
+Still failing → **reboot once** with VGA cable connected.
 
 ```bash
 # Status (legacy unit may be disabled)
