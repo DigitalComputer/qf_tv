@@ -50,4 +50,11 @@ for h in $QF_EXTRA_HOSTS; do
   add_host "$h"
 done
 
+if [[ -n "$QF_API_HOST" ]]; then
+  mkdir -p /etc/qf-tv
+  printf '%s\n' "{\"api_host\":\"${QF_API_HOST%/}\"}" > /etc/qf-tv/config.json
+  chmod 644 /etc/qf-tv/config.json
+  echo "✓ /etc/qf-tv/config.json → ${QF_API_HOST%/}"
+fi
+
 echo "✓ DNS ready. Test: getent hosts $(url_hostname "${QF_API_HOST:-$QF_CENTRAL_HOST}")"

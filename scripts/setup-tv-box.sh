@@ -191,6 +191,13 @@ for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
     *) external="\$out"; xrandr --output "\$out" --primary --auto 2>/dev/null || true ;;
   esac
 done
+if [ -z "\$external" ]; then
+  for out in HDMI-1 HDMI-2 DP-1 DP-2 VGA-1 VGA1; do
+    if xrandr 2>/dev/null | grep -qE "^\${out} "; then
+      if xrandr --output "\$out" --primary --auto 2>/dev/null; then external="\$out"; break; fi
+    fi
+  done
+fi
 if [ -n "\$external" ]; then
   for out in \$(xrandr 2>/dev/null | awk '/ connected/{print \$1}'); do
     case "\$out" in eDP*|LVDS*) xrandr --output "\$out" --off 2>/dev/null || true ;; esac
