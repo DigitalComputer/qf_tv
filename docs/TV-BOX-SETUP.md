@@ -290,13 +290,19 @@ curl -s "$(
 Tenant TV API **only** answers on the instance host (`https://{slug}.queueflow.ao`), not `queueflow.ao` or raw IP.
 
 ```bash
-# On API server (must return JSON with "success":true)
+# On API server (127.0.0.1 = same machine as Docker :8000)
 curl -s -H "Host: administra-o-maianga.queueflow.ao" \
   http://127.0.0.1:8000/api/v1/tv/ping
 
-# On TV box — api_host in config must match tenant slug
+# On TV box — use LAN API IP, not 127.0.0.1
+curl -s http://administra-o-maianga.queueflow.ao:8000/api/v1/tv/ping
+# or:
+curl -s -H "Host: administra-o-maianga.queueflow.ao" \
+  http://192.168.30.168:8000/api/v1/tv/ping
+
 cat /etc/qf-tv/config.json
 getent hosts administra-o-maianga.queueflow.ao
+ls -la /opt/qf-tv/qf_tv /opt/qf-tv/run-qf-tv.sh
 ```
 
 - Check firewall / DNS for `{tenant}.queueflow.ao`
