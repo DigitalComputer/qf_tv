@@ -209,8 +209,10 @@ if [ -n "\$external" ]; then
   done
 fi
 # QueueFlow TV — must run inside kiosk X session (not before LightDM :0 exists)
+install -m 755 "$(dirname "$0")/run-qf-tv-kiosk.sh" "${INSTALL_DIR}/run-qf-tv.sh"
+
 while true; do
-  ${INSTALL_DIR}/qf_tv
+  ${INSTALL_DIR}/run-qf-tv.sh
   sleep 3
 done &
 EOF

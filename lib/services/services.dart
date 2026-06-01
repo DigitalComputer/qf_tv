@@ -138,6 +138,19 @@ class ApiService {
   final String baseUrl;
   static const _timeout = Duration(seconds: 10);
 
+  /// Prefer config host; on LAN fall back to http://tenant.queueflow.ao:8000.
+  static Future<String> resolveReachableHost([String? preferred]) async {
+    final host = preferred ?? await ConfigService.apiHost();
+    if (await ApiService(host).ping()) return host;
+
+    final fallback = _lanHttpFallback(host);
+    if (fallback != null && fallback != host && await ApiService(fallback).ping()) {
+      return fallback;
+    }
+
+    throw Exception('Servidor indisponível ($host)');
+  }
+
   Map<String, String> _headers([String? token]) => {
         'Accept': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
@@ -153,9 +166,34 @@ class ApiService {
   }
 
   Future<bool> ping() async {
+    if (await _pingUrl(baseUrl)) return true;
+
+    final fallback = _lanHttpFallback(baseUrl);
+    if (fallback != null && fallback != baseUrl) {
+      return _pingUrl(fallback);
+    }
+
+    return false;
+  }
+
+  /// Dev/LAN: API on :8000 HTTP while config says https://tenant.queueflow.ao
+  static String? _lanHttpFallback(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) return null;
+    if (!uri.host.endsWith('.queueflow.ao')) return null;
+    if (uri.scheme == 'http' && uri.port == 8000) return null;
+
+    return Uri(
+      scheme: 'http',
+      host: uri.host,
+      port: 8000,
+    ).toString();
+  }
+
+  Future<bool> _pingUrl(String url) async {
     try {
       final r = await ApiHttp
-          .get(Uri.parse('$baseUrl/api/v1/tv/ping'), headers: _headers())
+          .get(Uri.parse('$url/api/v1/tv/ping'), headers: _headers())
           .timeout(_timeout);
       return r.statusCode == 200;
     } catch (_) {

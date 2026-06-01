@@ -101,8 +101,12 @@ if [[ -n "$external" ]]; then
 fi
 
 # QueueFlow TV (started after X is up)
+install -m 755 "$SCRIPT_DIR/run-qf-tv-kiosk.sh" /opt/qf-tv/run-qf-tv.sh 2>/dev/null || cp "$SCRIPT_DIR/run-qf-tv-kiosk.sh" /opt/qf-tv/run-qf-tv.sh
+chmod 755 /opt/qf-tv/run-qf-tv.sh
+chown "${KIOSK_USER}:${KIOSK_USER}" /opt/qf-tv/run-qf-tv.sh
+
 while true; do
-  /opt/qf-tv/qf_tv
+  /opt/qf-tv/run-qf-tv.sh
   sleep 3
 done &
 AUTOSTART_TAIL
@@ -140,8 +144,12 @@ if [[ -n "$external" ]]; then
     case "$out" in eDP*|LVDS*) xrandr --output "$out" --off 2>/dev/null || true ;; esac
   done
 fi
+install -m 755 "$SCRIPT_DIR/run-qf-tv-kiosk.sh" /opt/qf-tv/run-qf-tv.sh 2>/dev/null || cp "$SCRIPT_DIR/run-qf-tv-kiosk.sh" /opt/qf-tv/run-qf-tv.sh
+chmod 755 /opt/qf-tv/run-qf-tv.sh
+chown "${KIOSK_USER}:${KIOSK_USER}" /opt/qf-tv/run-qf-tv.sh
+
 while true; do
-  /opt/qf-tv/qf_tv
+  /opt/qf-tv/run-qf-tv.sh
   sleep 3
 done &
 AUTOSTART_TAIL

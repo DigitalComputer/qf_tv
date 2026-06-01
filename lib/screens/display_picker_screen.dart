@@ -35,13 +35,9 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
       return api.getScreensFromCentral(central);
     }
 
-    final host = await ConfigService.apiHost();
+    final host = await ApiService.resolveReachableHost();
     _apiHost = host;
-    final api = ApiService(host);
-    if (!await api.ping()) {
-      throw Exception('Servidor indisponível ($host)');
-    }
-    return api.getDisplays();
+    return ApiService(host).getDisplays();
   }
 
   Future<void> _select(TvDisplay display) async {
@@ -50,8 +46,8 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
 
     try {
       final host = display.apiHost.isNotEmpty
-          ? display.apiHost
-          : await ConfigService.apiHost();
+          ? await ApiService.resolveReachableHost(display.apiHost)
+          : await ApiService.resolveReachableHost();
       final api = ApiService(host);
       final result = await api.activate(display.id);
       final session = ActivateResult(
