@@ -22,6 +22,7 @@ QF_API_PORT="${QF_API_PORT:-8000}"
 
 log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m!\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
@@ -100,18 +101,21 @@ if [[ -n "$QF_API_HOST" ]]; then
 fi
 
 if [[ -n "$QF_API_HOST" ]]; then
-  DNS_DIR="$(mktemp -d)"
-  trap 'rm -rf "$DNS_DIR"' EXIT
-  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/setup-tv-dns.sh" \
-    -o "${DNS_DIR}/setup-tv-dns.sh"
-  mkdir -p "${DNS_DIR}/lib"
-  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/lib/tv-dns.sh" \
-    -o "${DNS_DIR}/lib/tv-dns.sh"
-  chmod +x "${DNS_DIR}/setup-tv-dns.sh"
   log "Auto DNS (/etc/hosts from domain)"
-  QF_API_IP="${QF_API_IP:-}" QF_API_HOST="$QF_API_HOST" bash "${DNS_DIR}/setup-tv-dns.sh"
-  rm -rf "$DNS_DIR"
-  trap - EXIT
+  TV_DNS="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/lib/tv-dns.sh" \
+    -o "$TV_DNS"
+  # shellcheck source=/dev/null
+  source "$TV_DNS"
+  rm -f "$TV_DNS"
+  domain="$(url_hostname "$QF_API_HOST")"
+  if host_resolves "$domain"; then
+    ok "DNS OK — ${domain} already resolves"
+  elif tv_ensure_hosts_for_domains "$domain"; then
+    ok "DNS mapped ${domain}"
+  else
+    warn "DNS skip — ${domain} unreachable; fix /etc/hosts or set QF_API_IP"
+  fi
 fi
 
 KIOSK_HOME="$(eval echo "~$KIOSK_USER")"
