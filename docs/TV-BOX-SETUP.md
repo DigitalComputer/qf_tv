@@ -6,12 +6,12 @@ One script turns a **fresh Ubuntu Server** mini PC into a QueueFlow waiting-room
 
 ## Which machine? (168 vs 133)
 
-| Task | Run on **API server** `192.168.30.168` (`queueflow`) | Run on **TV box** `192.168.30.133` (`qf_tv` / `kiosk`) |
-|------|------------------------------------------------------|--------------------------------------------------------|
+| Task | Run on **API server** (`queueflow@…`) | Run on **TV box** (`qf_tv@…`) |
+|------|----------------------------------------|-------------------------------|
 | `git pull` laravel-api-kit / qf_orchestrator | Yes | **No** — repos not on TV |
 | `docker compose` / `deploy-tv-api-fix.sh` | Yes | No |
-| `curl http://127.0.0.1:8000/...` | Yes (API is local) | **No** — connection refused |
-| `curl http://administra-o-maianga.queueflow.ao:8000/...` | Yes | **Yes** — tests real TV path |
+| `curl http://127.0.0.1:8000/...` | Yes (API is local) | **No** — use tenant domain |
+| `curl http://{tenant}.queueflow.ao:8000/...` | Yes | **Yes** — same as TV app |
 | Edit `/etc/qf-tv/config.json` | No | Yes |
 | `systemctl restart lightdm` | No | Yes |
 
@@ -85,28 +85,25 @@ sudo reboot
 
 ## LAN / dev (no public DNS for `*.queueflow.ao`)
 
-TV on local network cannot resolve tenant domain → map API server IP in `/etc/hosts`:
+Install uses **domain only** — no manual server IP. Scripts call your tenant URL, learn the API IP from `curl`, and write `/etc/hosts` only if DNS fails.
 
 ```bash
-# Quick fix (run on TV box as root)
-sudo QF_API_IP=192.168.30.168 \
-  QF_API_HOST=https://administra-o-maianga.queueflow.ao \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-dns.sh)"
-
-getent hosts administra-o-maianga.queueflow.ao
+# One-shot (recommended) — domain from API bootstrap
+curl -fsSL http://administra-o-maianga.queueflow.ao:8000/api/v1/tv/setup/bootstrap.sh | sudo bash
+sudo reboot
 ```
 
-Full install with DNS + app:
+Or upgrade app only:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/setup-tv-box.sh \
-  | sudo QF_API_IP=192.168.30.168 \
-       QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 bash
+sudo QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
+  QF_TV_VERSION=latest \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh)"
 ```
 
-On API server set `QF_TV_DEV_API_IP=192.168.30.168` in `.env` — bootstrap script exports `QF_API_IP` automatically.
+Registry and `/tv/setup` return `api_host` with the **same scheme and port** as the request (e.g. `http://tenant.queueflow.ao:8000` on dev, `https://tenant.queueflow.ao` in production).
 
-Use `http://…:8000` when dev stack has no TLS; use `https://` only when nginx serves SSL on 443.
+Use `http://…:8000` when dev stack has no TLS; use `https://` when nginx serves SSL on 443.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -309,11 +306,8 @@ Tenant TV API **only** answers on the instance host (`https://{slug}.queueflow.a
 curl -s -H "Host: administra-o-maianga.queueflow.ao" \
   http://127.0.0.1:8000/api/v1/tv/ping
 
-# On TV box — use LAN API IP, not 127.0.0.1
+# On TV box — tenant domain (not 127.0.0.1)
 curl -s http://administra-o-maianga.queueflow.ao:8000/api/v1/tv/ping
-# or:
-curl -s -H "Host: administra-o-maianga.queueflow.ao" \
-  http://192.168.30.168:8000/api/v1/tv/ping
 
 cat /etc/qf-tv/config.json
 getent hosts administra-o-maianga.queueflow.ao
@@ -321,7 +315,7 @@ ls -la /opt/qf-tv/qf_tv /opt/qf-tv/run-qf-tv.sh
 ```
 
 - Check firewall / DNS for `{tenant}.queueflow.ao`
-- Dev LAN: `/etc/hosts` on TV → `192.168.30.168 administra-o-maianga.queueflow.ao`
+- Dev LAN: `/etc/hosts` auto-written by install when DNS missing (IP from curl to tenant domain)
 - After API deploy: `cd ~/qf_orchestrator && ./scripts/fix-dev-stack.sh` (rebuilds `qf-api`, seeds domains)
 
 ### Wrong display stuck

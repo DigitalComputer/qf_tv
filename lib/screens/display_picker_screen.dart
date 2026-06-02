@@ -122,7 +122,7 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
                                 style: QueueTheme.heading),
                             const SizedBox(height: 12),
                             Text(
-                              'Ping OK mas lista de ecrãs falhou — verifique API em 168',
+                              'Ping OK mas lista de ecrãs falhou — verifique API do tenant',
                               style: QueueTheme.body.copyWith(fontSize: 14),
                               textAlign: TextAlign.center,
                             ),

@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# Map QueueFlow tenant domains to a LAN API IP (dev / air-gapped DNS).
+# Map QueueFlow domains in /etc/hosts when LAN DNS does not resolve *.queueflow.ao.
+# API server IP is auto-detected by curling the tenant/central domain (no manual IP).
 #
 # Usage:
-#   sudo QF_API_IP=192.168.30.168 QF_API_HOST=https://administra-o-maianga.queueflow.ao ./setup-tv-dns.sh
+#   sudo QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 ./setup-tv-dns.sh
 #
-# Optional:
-#   QF_EXTRA_HOSTS="queueflow.ao api.queueflow.ao"  — additional names
+# Optional override:
+#   QF_API_IP=1.2.3.4  — skip auto-detect
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/tv-dns.sh
+source "${SCRIPT_DIR}/lib/tv-dns.sh"
 
 QF_API_IP="${QF_API_IP:-}"
 QF_API_HOST="${QF_API_HOST:-}"
@@ -16,40 +21,10 @@ QF_CENTRAL_HOST="${QF_CENTRAL_HOST:-}"
 QF_EXTRA_HOSTS="${QF_EXTRA_HOSTS:-queueflow.ao}"
 
 [[ $EUID -eq 0 ]] || { echo "Run as root: sudo $0" >&2; exit 1; }
-[[ -n "$QF_API_IP" ]] || { echo "Set QF_API_IP (LAN IP of API server)" >&2; exit 1; }
-
-url_hostname() {
-  local raw="${1#*://}"
-  raw="${raw%%/*}"
-  raw="${raw%%:*}"
-  printf '%s' "$raw"
+[[ -n "$QF_API_HOST" || -n "$QF_CENTRAL_HOST" ]] || {
+  echo "Set QF_API_HOST or QF_CENTRAL_HOST (domain URL from /api/v1/tv/setup)" >&2
+  exit 1
 }
-
-HOSTS_FILE="/etc/hosts"
-MARKER="# queueflow-tv-dns"
-
-declare -A SEEN=()
-add_host() {
-  local name="$1"
-  [[ -z "$name" ]] && return 0
-  [[ "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && return 0
-  [[ -n "${SEEN[$name]:-}" ]] && return 0
-  SEEN[$name]=1
-
-  if grep -qE "[[:space:]]${name}([[:space:]]|$)" "$HOSTS_FILE" 2>/dev/null; then
-    # Replace existing line for this hostname
-    sed -i "/[[:space:]]${name}\([[:space:]]\|$\)/d" "$HOSTS_FILE"
-  fi
-  echo "${QF_API_IP} ${name} ${MARKER}" >> "$HOSTS_FILE"
-  echo "  + ${QF_API_IP} → ${name}"
-}
-
-echo "→ /etc/hosts (API at ${QF_API_IP})"
-[[ -n "$QF_API_HOST" ]] && add_host "$(url_hostname "$QF_API_HOST")"
-[[ -n "$QF_CENTRAL_HOST" ]] && add_host "$(url_hostname "$QF_CENTRAL_HOST")"
-for h in $QF_EXTRA_HOSTS; do
-  add_host "$h"
-done
 
 ensure_api_port() {
   local h="${1%/}"
@@ -59,11 +34,23 @@ ensure_api_port() {
   printf '%s' "$h"
 }
 
+names=()
+[[ -n "$QF_API_HOST" ]] && names+=("$(url_hostname "$QF_API_HOST")")
+[[ -n "$QF_CENTRAL_HOST" ]] && names+=("$(url_hostname "$QF_CENTRAL_HOST")")
+for h in $QF_EXTRA_HOSTS; do
+  names+=("$h")
+done
+
+echo "→ /etc/hosts (domain-based, IP auto-detected if needed)"
+if ! tv_ensure_hosts_for_domains "${names[@]}"; then
+  echo "✗ Could not map domains — ensure TV can reach QF_API_HOST (curl ping) or set QF_API_IP" >&2
+  exit 1
+fi
+
 if [[ -n "$QF_API_HOST" ]]; then
   mkdir -p /etc/qf-tv
   host="$(ensure_api_port "${QF_API_HOST%/}")"
-  # LAN + HTTPS: Apache often uses self-signed / hosts-only DNS
-  if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
+  if [[ "$host" == https://* ]]; then
     printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > /etc/qf-tv/config.json
   else
     printf '%s\n' "{\"api_host\":\"${host}\"}" > /etc/qf-tv/config.json

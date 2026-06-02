@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Download latest (or pinned) GitHub release into /opt/qf-tv and restart GUI.
 #
-# Usage:
-#   sudo QF_API_IP=192.168.30.168 \
-#        QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
-#        QF_TV_VERSION=v1.0.1 \
+# Usage (domain only — IP auto-detected for /etc/hosts if needed):
+#   sudo QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
+#        QF_TV_VERSION=v1.0.3 \
 #        bash -c "$(curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh)"
 
 set -euo pipefail
@@ -25,7 +24,6 @@ die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash $0"
 
-# http(s)://tenant.queueflow.ao → add :8000 when port omitted (LAN API)
 ensure_api_port() {
   local h="${1%/}"
   if [[ "$h" =~ ^https?://[^:/]+$ ]]; then
@@ -41,7 +39,7 @@ write_config() {
   if [[ -f "$CONFIG_FILE" ]] && command -v jq >/dev/null 2>&1; then
     central="$(jq -r '.central_host // empty' "$CONFIG_FILE" 2>/dev/null || true)"
   fi
-  if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
+  if [[ "$host" == https://* ]]; then
     if [[ -n "$central" ]]; then
       jq -n --arg api "$host" --arg central "$central" \
         '{api_host:$api, central_host:$central, allow_insecure_ssl:true}' > "$CONFIG_FILE"
@@ -95,9 +93,15 @@ if [[ -n "$QF_API_HOST" ]]; then
   QF_API_HOST="$host"
 fi
 
-if [[ -n "$QF_API_IP" && -n "$QF_API_HOST" ]]; then
-  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/setup-tv-dns.sh" \
-    | QF_API_IP="$QF_API_IP" QF_API_HOST="$QF_API_HOST" bash
+if [[ -n "$QF_API_HOST" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo /tmp)"
+  DNS_SCRIPT="${SCRIPT_DIR}/setup-tv-dns.sh"
+  if [[ ! -f "$DNS_SCRIPT" ]]; then
+    DNS_SCRIPT="$(mktemp)"
+    curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/setup-tv-dns.sh" -o "$DNS_SCRIPT"
+  fi
+  log "Auto DNS (/etc/hosts from domain)"
+  QF_API_IP="${QF_API_IP:-}" QF_API_HOST="$QF_API_HOST" bash "$DNS_SCRIPT"
 fi
 
 KIOSK_HOME="$(eval echo "~$KIOSK_USER")"

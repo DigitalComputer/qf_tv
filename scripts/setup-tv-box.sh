@@ -17,7 +17,6 @@
 #   sudo QF_CENTRAL_HOST=https://queueflow.ao ./scripts/setup-tv-box.sh
 #
 # Optional env (override API defaults):
-#   QF_API_IP        — LAN IP of API server → writes /etc/hosts (fix NXDOMAIN on TV LAN)
 #   QF_CENTRAL_HOST  — central registry URL (self-hosted multi-instance)
 #   QF_API_HOST      — single tenant API URL
 #   QF_TV_VERSION    — release tag, e.g. v1.0.0 or "latest"
@@ -54,35 +53,15 @@ url_hostname() {
 }
 
 configure_local_dns() {
-  [[ -n "$QF_API_IP" ]] || return 0
+  [[ -n "$QF_API_HOST" || -n "$QF_CENTRAL_HOST" ]] || return 0
 
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -x "${script_dir}/setup-tv-dns.sh" ]]; then
-    log "Mapping QueueFlow domains → ${QF_API_IP} (/etc/hosts)"
-    QF_API_HOST="$QF_API_HOST" QF_CENTRAL_HOST="$QF_CENTRAL_HOST" \
-      bash "${script_dir}/setup-tv-dns.sh"
-    ok "Local DNS configured"
-    return 0
-  fi
-
-  local host=""
-  if [[ -n "$QF_API_HOST" ]]; then
-    host="$(url_hostname "$QF_API_HOST")"
-  elif [[ -n "$QF_CENTRAL_HOST" ]]; then
-    host="$(url_hostname "$QF_CENTRAL_HOST")"
-  fi
-  [[ -n "$host" ]] || die "Set QF_API_HOST or QF_CENTRAL_HOST with QF_API_IP"
-
-  log "Mapping ${host} → ${QF_API_IP}"
-  grep -q "queueflow-tv-dns" /etc/hosts 2>/dev/null && \
-    sed -i '/queueflow-tv-dns/d' /etc/hosts || true
-  echo "${QF_API_IP} ${host} queueflow.ao # queueflow-tv-dns" >> /etc/hosts
+  log "Local DNS for QueueFlow domains (auto from api_host URL)"
+  QF_API_IP="${QF_API_IP:-}" QF_API_HOST="$QF_API_HOST" QF_CENTRAL_HOST="$QF_CENTRAL_HOST" \
+    bash "${script_dir}/setup-tv-dns.sh"
   ok "Local DNS configured"
 }
-
-# DNS before any curl to tenant domain
-configure_local_dns
 
 fetch_setup_config() {
   if [[ -n "$QF_CENTRAL_HOST" ]]; then
@@ -128,7 +107,13 @@ fetch_setup_config() {
   fi
 }
 
+# Map domains before setup fetch when bootstrap exported QF_API_HOST
+[[ -n "$QF_API_HOST" || -n "$QF_CENTRAL_HOST" ]] && configure_local_dns
+
 fetch_setup_config
+
+# Re-run after api_host may have been updated from /tv/setup
+configure_local_dns
 
 QF_TV_VERSION="${QF_TV_VERSION:-latest}"
 GITHUB_REPO="${GITHUB_REPO:-DigitalComputer/qf_tv}"
