@@ -76,7 +76,10 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
     } catch (e) {
       setState(() {
         _activating = false;
-        _error = 'Falha ao activar ecrã';
+        final detail = e.toString().replaceFirst('Exception: ', '');
+        _error = detail.contains('HTTP') || detail.contains('Ecrã')
+            ? detail
+            : 'Falha ao activar ecrã';
       });
     }
   }

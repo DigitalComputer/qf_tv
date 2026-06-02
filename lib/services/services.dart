@@ -206,10 +206,16 @@ class ApiService {
       };
 
   dynamic _unwrap(http.Response r) {
+    final body = jsonDecode(r.body);
     if (r.statusCode >= 400) {
+      if (body is Map) {
+        final message = body['message']?.toString();
+        if (message != null && message.isNotEmpty) {
+          throw HttpException('$message (HTTP ${r.statusCode})');
+        }
+      }
       throw HttpException('HTTP ${r.statusCode}');
     }
-    final body = jsonDecode(r.body);
     if (body is Map && body['data'] != null) return body['data'];
     return body;
   }
