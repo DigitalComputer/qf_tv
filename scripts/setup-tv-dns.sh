@@ -11,8 +11,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TV_DNS_LIB="${SCRIPT_DIR}/lib/tv-dns.sh"
+if [[ ! -f "$TV_DNS_LIB" && -n "${QF_TV_REPO_RAW:-}" ]]; then
+  TV_DNS_LIB="$(mktemp)"
+  curl -fsSL "${QF_TV_REPO_RAW}/scripts/lib/tv-dns.sh" -o "$TV_DNS_LIB"
+fi
+if [[ ! -f "$TV_DNS_LIB" ]]; then
+  TV_DNS_LIB="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/lib/tv-dns.sh" \
+    -o "$TV_DNS_LIB"
+fi
 # shellcheck source=lib/tv-dns.sh
-source "${SCRIPT_DIR}/lib/tv-dns.sh"
+source "$TV_DNS_LIB"
 
 QF_API_IP="${QF_API_IP:-}"
 QF_API_HOST="${QF_API_HOST:-}"

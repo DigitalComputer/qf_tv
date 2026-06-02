@@ -100,14 +100,18 @@ if [[ -n "$QF_API_HOST" ]]; then
 fi
 
 if [[ -n "$QF_API_HOST" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo /tmp)"
-  DNS_SCRIPT="${SCRIPT_DIR}/setup-tv-dns.sh"
-  if [[ ! -f "$DNS_SCRIPT" ]]; then
-    DNS_SCRIPT="$(mktemp)"
-    curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/setup-tv-dns.sh" -o "$DNS_SCRIPT"
-  fi
+  DNS_DIR="$(mktemp -d)"
+  trap 'rm -rf "$DNS_DIR"' EXIT
+  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/setup-tv-dns.sh" \
+    -o "${DNS_DIR}/setup-tv-dns.sh"
+  mkdir -p "${DNS_DIR}/lib"
+  curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/lib/tv-dns.sh" \
+    -o "${DNS_DIR}/lib/tv-dns.sh"
+  chmod +x "${DNS_DIR}/setup-tv-dns.sh"
   log "Auto DNS (/etc/hosts from domain)"
-  QF_API_IP="${QF_API_IP:-}" QF_API_HOST="$QF_API_HOST" bash "$DNS_SCRIPT"
+  QF_API_IP="${QF_API_IP:-}" QF_API_HOST="$QF_API_HOST" bash "${DNS_DIR}/setup-tv-dns.sh"
+  rm -rf "$DNS_DIR"
+  trap - EXIT
 fi
 
 KIOSK_HOME="$(eval echo "~$KIOSK_USER")"
