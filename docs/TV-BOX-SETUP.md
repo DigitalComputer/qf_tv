@@ -4,6 +4,21 @@ One script turns a **fresh Ubuntu Server** mini PC into a QueueFlow waiting-room
 
 ---
 
+## Which machine? (168 vs 133)
+
+| Task | Run on **API server** `192.168.30.168` (`queueflow`) | Run on **TV box** `192.168.30.133` (`qf_tv` / `kiosk`) |
+|------|------------------------------------------------------|--------------------------------------------------------|
+| `git pull` laravel-api-kit / qf_orchestrator | Yes | **No** — repos not on TV |
+| `docker compose` / `deploy-tv-api-fix.sh` | Yes | No |
+| `curl http://127.0.0.1:8000/...` | Yes (API is local) | **No** — connection refused |
+| `curl http://administra-o-maianga.queueflow.ao:8000/...` | Yes | **Yes** — tests real TV path |
+| Edit `/etc/qf-tv/config.json` | No | Yes |
+| `systemctl restart lightdm` | No | Yes |
+
+TV app uses `http://{tenant}.queueflow.ao:8000` from config (not the browser dashboard URL `https://…/dashboard`).
+
+---
+
 ## What you need
 
 | Item | Notes |

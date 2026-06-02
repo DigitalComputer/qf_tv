@@ -79,9 +79,10 @@ class _DisplayScreenState extends State<DisplayScreen> {
       final host = await ApiService.resolveReachableHost(
         widget.session.apiHost.isNotEmpty ? widget.session.apiHost : null,
       );
-      _api = ApiService(host);
+      final api = ApiService(host);
+      _api = api;
 
-      final boot = await _api.bootstrap(widget.session.token);
+      final boot = await api.bootstrap(widget.session.token);
       _template = boot.template;
       _queueState = boot.queue;
 
@@ -96,16 +97,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
       );
       _reverb!.connect();
     } catch (_) {
-      try {
-        _template = await _api.getTemplate(widget.session.templateId);
-        _queueState = await _api.getQueue(
-          widget.session.displayId,
-          widget.session.token,
-        );
-        _connected = false;
-      } catch (_) {
-        _connected = false;
-      }
+      _connected = false;
     }
 
     if (mounted) setState(() => _loading = false);

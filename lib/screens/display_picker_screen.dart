@@ -17,11 +17,15 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
   late Future<List<TvDisplay>> _future;
   String? _error;
   String? _apiHost;
+  String? _configHost;
   bool _activating = false;
 
   @override
   void initState() {
     super.initState();
+    ConfigService.apiHost().then((h) {
+      if (mounted) setState(() => _configHost = h);
+    });
     _future = _loadDisplays();
   }
 
@@ -109,18 +113,33 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
                           child: CircularProgressIndicator(color: QueueTheme.amber));
                     }
                     if (snap.hasError) {
+                      final detail = snap.error.toString();
                       return Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text('Sem ligação ao servidor',
                                 style: QueueTheme.heading),
-                            const SizedBox(height: 16),
-                            if (_apiHost != null) ...[
-                              const SizedBox(height: 8),
-                              Text(_apiHost!,
+                            const SizedBox(height: 12),
+                            Text(
+                              'Ping OK mas lista de ecrãs falhou — verifique API em 168',
+                              style: QueueTheme.body.copyWith(fontSize: 14),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            if (_apiHost != null)
+                              Text('API: $_apiHost',
+                                  style: QueueTheme.body.copyWith(fontSize: 14))
+                            else if (_configHost != null)
+                              Text('Config: $_configHost',
                                   style: QueueTheme.body.copyWith(fontSize: 14)),
-                            ],
+                            const SizedBox(height: 8),
+                            Text(detail,
+                                style: QueueTheme.label.copyWith(
+                                  color: QueueTheme.textMuted,
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.center),
                             const SizedBox(height: 16),
                             OutlinedButton(
                               onPressed: () => setState(() {

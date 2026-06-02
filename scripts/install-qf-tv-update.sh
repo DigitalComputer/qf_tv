@@ -36,9 +36,21 @@ ensure_api_port() {
 
 write_config() {
   local host="$1"
+  local central=""
   mkdir -p "$CONFIG_DIR"
+  if [[ -f "$CONFIG_FILE" ]] && command -v jq >/dev/null 2>&1; then
+    central="$(jq -r '.central_host // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+  fi
   if [[ -n "$QF_API_IP" && "$host" == https://* ]]; then
-    printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > "$CONFIG_FILE"
+    if [[ -n "$central" ]]; then
+      jq -n --arg api "$host" --arg central "$central" \
+        '{api_host:$api, central_host:$central, allow_insecure_ssl:true}' > "$CONFIG_FILE"
+    else
+      printf '%s\n' "{\"api_host\":\"${host}\",\"allow_insecure_ssl\":true}" > "$CONFIG_FILE"
+    fi
+  elif [[ -n "$central" ]]; then
+    jq -n --arg api "$host" --arg central "$central" \
+      '{api_host:$api, central_host:$central}' > "$CONFIG_FILE"
   else
     printf '%s\n' "{\"api_host\":\"${host}\"}" > "$CONFIG_FILE"
   fi
