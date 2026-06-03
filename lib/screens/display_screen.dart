@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
 import '../renderer/template_renderer.dart';
@@ -8,7 +7,6 @@ import '../services/announce_service.dart';
 import '../services/reverb_service.dart';
 import '../services/services.dart';
 import '../theme.dart';
-import '../widgets/sound_gate.dart';
 import 'display_picker_screen.dart';
 
 class DisplayScreen extends StatefulWidget {
@@ -21,8 +19,6 @@ class DisplayScreen extends StatefulWidget {
 }
 
 class _DisplayScreenState extends State<DisplayScreen> {
-  static const _kSoundActivated = 'qf_tv_sound_activated';
-
   late ApiService _api;
   ReverbService? _reverb;
   final AnnounceService _announce = AnnounceService();
@@ -30,7 +26,6 @@ class _DisplayScreenState extends State<DisplayScreen> {
   QueueState _queueState = QueueState.empty('');
   ReverbConnectionState _reverbState = ReverbConnectionState.disconnected;
   bool _loading = true;
-  bool _soundActivated = false;
   String? _errorMessage;
   String? _lastAnnouncedCode;
 
@@ -44,21 +39,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
     super.initState();
     _queueState = QueueState.empty(widget.session.displayName);
     HardwareKeyboard.instance.addHandler(_handleUnlockSequence);
-    _loadSoundFlag();
+    _announce.init();
     _bootstrap();
-  }
-
-  Future<void> _loadSoundFlag() async {
-    final p = await SharedPreferences.getInstance();
-    final activated = p.getBool(_kSoundActivated) ?? false;
-    if (mounted) setState(() => _soundActivated = activated);
-  }
-
-  Future<void> _activateSound() async {
-    await _announce.init();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(_kSoundActivated, true);
-    if (mounted) setState(() => _soundActivated = true);
   }
 
   bool _handleUnlockSequence(KeyEvent event) {
@@ -165,7 +147,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   }
 
   void _maybeAnnounce(QueueTicket? ticket) {
-    if (!_soundActivated || ticket == null) return;
+    if (ticket == null) return;
     final code = ticket.ticketCode;
     if (code.isEmpty || code == _lastAnnouncedCode) return;
     _lastAnnouncedCode = code;
@@ -213,8 +195,6 @@ class _DisplayScreenState extends State<DisplayScreen> {
                 ),
               ),
             ),
-          if (!_soundActivated)
-            SoundGate(onActivate: _activateSound),
         ],
       ),
     );

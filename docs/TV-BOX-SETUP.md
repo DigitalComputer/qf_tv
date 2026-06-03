@@ -320,8 +320,8 @@ ls -la /opt/qf-tv/qf_tv /opt/qf-tv/run-qf-tv.sh
 
 ### Calls from posto not showing / no sound (v1.0.6+)
 
-1. On live display, click once to **activar som** (fullscreen overlay).
-2. Top bar **AO VIVO** = WebSocket to Reverb; **RECONECTANDO** = HTTP poll fallback (queue still updates every ~3s).
+1. Top bar **AO VIVO** = WebSocket to Reverb; **RECONECTANDO** = HTTP poll fallback (queue still updates every ~3s).
+2. TTS announces each new call automatically (no tap required).
 3. From TV box, Reverb must be reachable (same host as API):
 
 ```bash
@@ -336,7 +336,7 @@ curl -sI "http://${HOST}:6001/app/devkey123" | head -3
 
 4. After API deploy, re-pick ecrã once (new `reverb.host` = tenant domain, not `qf-api`).
 5. Deploy API fix: `cd ~/qf_orchestrator && ./scripts/deploy-tv-api-fix.sh --quick`
-6. Update TV app: `sudo QF_TV_VERSION=v1.0.6 ./scripts/install-qf-tv-update.sh && sudo systemctl restart qf-tv`
+6. Update TV app: `sudo QF_TV_VERSION=v1.0.7 ./scripts/install-qf-tv-update.sh && sudo systemctl restart qf-tv`
 
 Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6001 while HTTP is on 8000.
 
