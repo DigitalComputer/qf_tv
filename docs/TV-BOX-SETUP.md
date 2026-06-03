@@ -318,6 +318,28 @@ ls -la /opt/qf-tv/qf_tv /opt/qf-tv/run-qf-tv.sh
 - Dev LAN: `/etc/hosts` auto-written by install when DNS missing (IP from curl to tenant domain)
 - After API deploy: `cd ~/qf_orchestrator && ./scripts/fix-dev-stack.sh` (rebuilds `qf-api`, seeds domains)
 
+### Calls from posto not showing / no sound (v1.0.6+)
+
+1. On live display, click once to **activar som** (fullscreen overlay).
+2. Top bar **AO VIVO** = WebSocket to Reverb; **RECONECTANDO** = HTTP poll fallback (queue still updates every ~3s).
+3. From TV box, Reverb must be reachable (same host as API):
+
+```bash
+API=$(jq -r '.api_host // .central_host' /etc/qf-tv/config.json)
+HOST=$(echo "$API" | sed -E 's#https?://([^:/]+).*#\1#')
+PORT=$(echo "$API" | grep -oE ':[0-9]+' | tr -d :)
+PORT=${PORT:-8000}
+curl -sI "http://${HOST}:${PORT}/app/devkey123" | head -3
+# or direct Reverb port:
+curl -sI "http://${HOST}:6001/app/devkey123" | head -3
+```
+
+4. After API deploy, re-pick ecrã once (new `reverb.host` = tenant domain, not `qf-api`).
+5. Deploy API fix: `cd ~/qf_orchestrator && ./scripts/deploy-tv-api-fix.sh --quick`
+6. Update TV app: `sudo QF_TV_VERSION=v1.0.6 ./scripts/install-qf-tv-update.sh && sudo systemctl restart qf-tv`
+
+Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6001 while HTTP is on 8000.
+
 ### Wrong display stuck
 
 **Ctrl+P** then **Alt+P** → picker → select again.

@@ -1,12 +1,14 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
 import '../renderer/template_renderer.dart';
+import '../services/announce_service.dart';
+import '../services/reverb_service.dart';
 import '../services/services.dart';
 import '../theme.dart';
+import '../widgets/sound_gate.dart';
 import 'display_picker_screen.dart';
 
 class DisplayScreen extends StatefulWidget {
@@ -19,22 +21,44 @@ class DisplayScreen extends StatefulWidget {
 }
 
 class _DisplayScreenState extends State<DisplayScreen> {
+  static const _kSoundActivated = 'qf_tv_sound_activated';
+
   late ApiService _api;
   ReverbService? _reverb;
+  final AnnounceService _announce = AnnounceService();
   DisplayTemplate _template = DisplayTemplate.fallback;
   QueueState _queueState = QueueState.empty('');
-  bool _connected = false;
+  ReverbConnectionState _reverbState = ReverbConnectionState.disconnected;
   bool _loading = true;
+  bool _soundActivated = false;
+  String? _errorMessage;
+  String? _lastAnnouncedCode;
 
   bool _ctrlPPressed = false;
   DateTime? _ctrlPAt;
+
+  bool get _wsConnected => _reverbState == ReverbConnectionState.connected;
 
   @override
   void initState() {
     super.initState();
     _queueState = QueueState.empty(widget.session.displayName);
     HardwareKeyboard.instance.addHandler(_handleUnlockSequence);
+    _loadSoundFlag();
     _bootstrap();
+  }
+
+  Future<void> _loadSoundFlag() async {
+    final p = await SharedPreferences.getInstance();
+    final activated = p.getBool(_kSoundActivated) ?? false;
+    if (mounted) setState(() => _soundActivated = activated);
+  }
+
+  Future<void> _activateSound() async {
+    await _announce.init();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kSoundActivated, true);
+    if (mounted) setState(() => _soundActivated = true);
   }
 
   bool _handleUnlockSequence(KeyEvent event) {
@@ -66,6 +90,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   }
 
   Future<void> _goToPicker() async {
+    await _announce.stop();
     _reverb?.dispose();
     await StorageService.clearSession();
     if (!mounted) return;
@@ -83,21 +108,34 @@ class _DisplayScreenState extends State<DisplayScreen> {
       _api = api;
 
       final boot = await api.bootstrap(widget.session.token);
-      _template = boot.template;
-      _queueState = boot.queue;
+      if (!mounted) return;
+      setState(() {
+        _template = boot.template;
+        _queueState = boot.queue;
+        _errorMessage = null;
+      });
+
+      await _refreshQueue();
+      _maybeAnnounce(_queueState.nowCalling);
 
       _reverb = ReverbService(
         config: boot.reverb,
         tenantId: boot.tenantId,
         branchId: boot.branchId,
-        onEvent: _refreshQueue,
-        onConnectionChange: (c) {
-          if (mounted) setState(() => _connected = c);
+        onEvent: (_) => _refreshQueue(),
+        onStateChange: (state) {
+          if (mounted) setState(() => _reverbState = state);
         },
       );
       _reverb!.connect();
-    } catch (_) {
-      _connected = false;
+    } catch (e, st) {
+      debugPrint('qf_tv bootstrap failed: $e\n$st');
+      if (mounted) {
+        setState(() {
+          _reverbState = ReverbConnectionState.error;
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
     }
 
     if (mounted) setState(() => _loading = false);
@@ -109,10 +147,32 @@ class _DisplayScreenState extends State<DisplayScreen> {
         widget.session.displayId,
         widget.session.token,
       );
-      if (mounted) setState(() => _queueState = state);
-    } catch (_) {
-      if (mounted) setState(() => _connected = false);
+      if (!mounted) return;
+      setState(() {
+        _queueState = state;
+        _errorMessage = null;
+      });
+      _maybeAnnounce(state.nowCalling);
+    } catch (e, st) {
+      debugPrint('qf_tv queue refresh failed: $e\n$st');
+      if (mounted) {
+        setState(() {
+          _reverbState = ReverbConnectionState.error;
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
     }
+  }
+
+  void _maybeAnnounce(QueueTicket? ticket) {
+    if (!_soundActivated || ticket == null) return;
+    final code = ticket.ticketCode;
+    if (code.isEmpty || code == _lastAnnouncedCode) return;
+    _lastAnnouncedCode = code;
+    _announce.announceTicket(
+      code,
+      counterLabel: AnnounceService.counterPhrase(ticket.counterName),
+    );
   }
 
   @override
@@ -128,10 +188,34 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
     return Scaffold(
       backgroundColor: QueueTheme.bg,
-      body: TemplateRenderer(
-        template: _template,
-        queueState: _queueState,
-        wsConnected: _connected,
+      body: Stack(
+        children: [
+          TemplateRenderer(
+            template: _template,
+            queueState: _queueState,
+            wsConnected: _wsConnected,
+          ),
+          if (_errorMessage != null)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 16,
+              child: Material(
+                color: QueueTheme.red.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: QueueTheme.red, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+          if (!_soundActivated)
+            SoundGate(onActivate: _activateSound),
+        ],
       ),
     );
   }
@@ -139,6 +223,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleUnlockSequence);
+    _announce.stop();
     _reverb?.dispose();
     super.dispose();
   }

@@ -18,6 +18,12 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.6
+
+- Real Laravel Reverb WebSocket (`ticket.called` → instant queue refresh)
+- HTTP poll fallback every 3s when WS down
+- pt-PT TTS announcements + one-time sound activation overlay
+
 ## Flow
 
 ```

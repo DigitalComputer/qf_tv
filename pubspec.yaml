@@ -2,7 +2,7 @@ name: qf_tv
 description: QueueFlow — Native Linux TV display terminal
 
 publish_to: 'none'
-version: 1.0.5+1
+version: 1.0.6+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -16,6 +16,8 @@ dependencies:
   connectivity_plus: ^5.0.2
   google_fonts: ^6.1.0
   intl: ^0.19.0
+  dart_pusher_channels: ^1.2.3
+  flutter_tts: ^4.2.0
 
 flutter:
   uses-material-design: true
