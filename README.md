@@ -18,6 +18,13 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.8
+
+- Fix queue refresh 403 (`GET /api/v1/tv/queue` — token only, no display id mismatch)
+- Stop marking Reverb disconnected on HTTP errors
+- TTS via `espeak-ng` (flutter_tts broken on Linux)
+- Install script disables duplicate systemd `qf-tv` process
+
 ## v1.0.7
 
 - TTS auto-enabled at boot (no sound activation overlay)

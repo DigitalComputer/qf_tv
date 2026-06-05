@@ -80,10 +80,10 @@ class _BootScreenState extends State<_BootScreen> {
       final boot = await api.bootstrap(token);
       return DisplayScreen(
         session: ActivateResult(
-          displayId: displayId,
+          displayId: boot.displayId.isNotEmpty ? boot.displayId : displayId,
           displayName: displayName,
           branchId: boot.branchId,
-          templateId: session['template_id'] ?? '',
+          templateId: boot.template.id,
           token: token,
           tenantId: boot.tenantId,
           apiHost: host,

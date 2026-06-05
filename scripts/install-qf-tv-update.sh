@@ -93,6 +93,33 @@ exec "${INSTALL_DIR}/qf_tv" "$@"
 EOF
 chmod 755 "$LAUNCHER"
 
+log "Disable legacy systemd qf-tv (openbox owns the app — avoids duplicate processes)"
+if systemctl is-enabled qf-tv.service &>/dev/null; then
+  systemctl disable --now qf-tv.service 2>/dev/null || true
+fi
+if [[ -f /etc/systemd/system/qf-tv.service ]] && grep -q 'ExecStart=.*qf_tv' /etc/systemd/system/qf-tv.service 2>/dev/null; then
+  cp /etc/systemd/system/qf-tv.service "/etc/systemd/system/qf-tv.service.bak.$(date +%s)" 2>/dev/null || true
+  cat > /etc/systemd/system/qf-tv.service <<'UNIT'
+[Unit]
+Description=QueueFlow TV (placeholder — openbox runs qf_tv)
+After=lightdm.service
+PartOf=lightdm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+
+[Install]
+WantedBy=graphical.target
+UNIT
+  systemctl daemon-reload
+  systemctl disable --now qf-tv.service 2>/dev/null || true
+fi
+
+log "TTS (espeak-ng for call announcements)"
+apt-get install -y -qq espeak-ng 2>/dev/null || apt-get install -y -qq espeak 2>/dev/null || true
+
 if [[ -n "$QF_API_HOST" ]]; then
   host="$(ensure_api_port "${QF_API_HOST%/}")"
   log "Config api_host=${host}"

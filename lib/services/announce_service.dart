@@ -1,11 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 
-/// Portuguese ticket announcements (aligned with qf_screen TTS).
+/// Portuguese ticket announcements via espeak-ng (Linux TV kiosk).
 class AnnounceService {
-  AnnounceService() : _tts = FlutterTts();
-
-  final FlutterTts _tts;
   bool _ready = false;
   bool _speaking = false;
   final List<Future<void> Function()> _queue = [];
@@ -61,11 +59,12 @@ class AnnounceService {
 
   Future<void> init() async {
     if (_ready) return;
-    await _tts.setLanguage('pt-PT');
-    await _tts.setSpeechRate(0.45);
-    await _tts.setPitch(0.9);
-    await _tts.setVolume(1.0);
-    await _tts.awaitSpeakCompletion(true);
+    if (Platform.isLinux) {
+      final which = await Process.run('which', ['espeak-ng']);
+      if (which.exitCode != 0) {
+        debugPrint('qf_tv TTS: espeak-ng not installed — apt install espeak-ng');
+      }
+    }
     _ready = true;
   }
 
@@ -103,7 +102,12 @@ class AnnounceService {
   }
 
   Future<void> _speak(String text) async {
-    await _tts.speak(text);
+    if (!Platform.isLinux) return;
+    await Process.run(
+      'espeak-ng',
+      ['-v', 'pt', '-s', '120', text],
+      runInShell: false,
+    );
   }
 
   String _spellCode(String code) {
@@ -140,7 +144,9 @@ class AnnounceService {
 
   Future<void> stop() async {
     _queue.clear();
-    await _tts.stop();
+    if (Platform.isLinux) {
+      await Process.run('pkill', ['-x', 'espeak-ng']);
+    }
     _speaking = false;
   }
 }

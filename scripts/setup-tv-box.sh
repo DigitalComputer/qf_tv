@@ -128,7 +128,7 @@ apt-get update -qq
 apt-get install -y -qq \
   curl jq ca-certificates \
   xorg xserver-xorg-video-all x11-xserver-utils \
-  openbox lightdm unclutter \
+  openbox lightdm unclutter espeak-ng \
   dbus-x11 \
   libgtk-3-0 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
   libgl1 libegl1 libgles2 libgl1-mesa-dri \

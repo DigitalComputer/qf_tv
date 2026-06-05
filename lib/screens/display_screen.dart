@@ -20,6 +20,7 @@ class DisplayScreen extends StatefulWidget {
 
 class _DisplayScreenState extends State<DisplayScreen> {
   late ApiService _api;
+  late String _token;
   ReverbService? _reverb;
   final AnnounceService _announce = AnnounceService();
   DisplayTemplate _template = DisplayTemplate.fallback;
@@ -37,6 +38,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   @override
   void initState() {
     super.initState();
+    _token = widget.session.token;
     _queueState = QueueState.empty(widget.session.displayName);
     HardwareKeyboard.instance.addHandler(_handleUnlockSequence);
     _announce.init();
@@ -81,6 +83,26 @@ class _DisplayScreenState extends State<DisplayScreen> {
     );
   }
 
+  Future<void> _persistSession({
+    required String displayId,
+    required String displayName,
+    required String branchId,
+    required String templateId,
+    required String tenantId,
+    required String apiHost,
+  }) async {
+    await StorageService.saveSession(ActivateResult(
+      displayId: displayId,
+      displayName: displayName,
+      branchId: branchId,
+      templateId: templateId,
+      token: _token,
+      tenantId: tenantId,
+      apiHost: apiHost,
+      reverb: widget.session.reverb,
+    ));
+  }
+
   Future<void> _bootstrap() async {
     try {
       final host = await ApiService.resolveReachableHost(
@@ -89,8 +111,18 @@ class _DisplayScreenState extends State<DisplayScreen> {
       final api = ApiService(host);
       _api = api;
 
-      final boot = await api.bootstrap(widget.session.token);
+      final boot = await api.bootstrap(_token);
       if (!mounted) return;
+
+      await _persistSession(
+        displayId: boot.displayId,
+        displayName: widget.session.displayName,
+        branchId: boot.branchId,
+        templateId: boot.template.id,
+        tenantId: boot.tenantId,
+        apiHost: host,
+      );
+
       setState(() {
         _template = boot.template;
         _queueState = boot.queue;
@@ -114,7 +146,6 @@ class _DisplayScreenState extends State<DisplayScreen> {
       debugPrint('qf_tv bootstrap failed: $e\n$st');
       if (mounted) {
         setState(() {
-          _reverbState = ReverbConnectionState.error;
           _errorMessage = e.toString().replaceFirst('Exception: ', '');
         });
       }
@@ -125,10 +156,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
   Future<void> _refreshQueue() async {
     try {
-      final state = await _api.getQueue(
-        widget.session.displayId,
-        widget.session.token,
-      );
+      final state = await _api.getQueue(_token);
       if (!mounted) return;
       setState(() {
         _queueState = state;
@@ -139,7 +167,6 @@ class _DisplayScreenState extends State<DisplayScreen> {
       debugPrint('qf_tv queue refresh failed: $e\n$st');
       if (mounted) {
         setState(() {
-          _reverbState = ReverbConnectionState.error;
           _errorMessage = e.toString().replaceFirst('Exception: ', '');
         });
       }

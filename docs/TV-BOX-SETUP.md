@@ -320,6 +320,38 @@ ls -la /opt/qf-tv/qf_tv /opt/qf-tv/run-qf-tv.sh
 
 ### Calls from posto not showing / no sound (v1.0.6+)
 
+**Symptoms:** `Forbidden (HTTP 403)` at bottom, **RECONECTANDO** after each call, two `qf_tv` processes.
+
+**Root cause (fixed in v1.0.8):** stale `display_id` in prefs vs token; queue refresh 403; Reverb still connected but UI lied; `flutter_tts` broken on Linux.
+
+**Immediate fix on TV box (SSH):**
+
+```bash
+# 1. Stop duplicate app (systemd + openbox)
+sudo systemctl disable --now qf-tv
+sudo pkill -u kiosk -f qf_tv
+
+# 2. Sound
+sudo apt-get install -y espeak-ng
+
+# 3. Re-activate display (replace Principal with your ecrã name)
+API=$(jq -r .api_host /etc/qf-tv/config.json)
+DISPLAY_NAME="Principal"
+DISPLAY_ID=$(curl -s -H "Accept: application/json" "$API/api/v1/tv/displays" \
+  | jq -r --arg n "$DISPLAY_NAME" '.data.displays[] | select(.name==$n) | .id')
+RESP=$(curl -s -X POST -H "Accept: application/json" "$API/api/v1/tv/displays/${DISPLAY_ID}/activate")
+TOKEN=$(echo "$RESP" | jq -r .data.token)
+sudo mkdir -p /home/kiosk/.local/share/com.example.qf_tv
+sudo tee /home/kiosk/.local/share/com.example.qf_tv/shared_preferences.json > /dev/null <<EOF
+{"flutter.display_id":"$DISPLAY_ID","flutter.display_name":"$DISPLAY_NAME","flutter.display_token":"$TOKEN","flutter.template_id":"$(echo "$RESP" | jq -r .data.template_id)","flutter.branch_id":"$(echo "$RESP" | jq -r .data.branch_id)","flutter.tenant_id":"$(echo "$RESP" | jq -r .data.tenant_id)","flutter.api_host":"$API"}
+EOF
+sudo chown -R kiosk:kiosk /home/kiosk/.local/share/com.example.qf_tv
+
+# 4. Update app + API (orchestrator: deploy-tv-api-fix.sh --quick)
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
+sudo env QF_TV_VERSION=v1.0.8 bash /tmp/qf-tv-update.sh
+```
+
 1. Top bar **AO VIVO** = WebSocket to Reverb; **RECONECTANDO** = HTTP poll fallback (queue still updates every ~3s).
 2. TTS announces each new call automatically (no tap required).
 3. From TV box, Reverb must be reachable (same host as API):
@@ -336,7 +368,14 @@ curl -sI "http://${HOST}:6001/app/devkey123" | head -3
 
 4. After API deploy, re-pick ecrã once (new `reverb.host` = tenant domain, not `qf-api`).
 5. Deploy API fix: `cd ~/qf_orchestrator && ./scripts/deploy-tv-api-fix.sh --quick`
-6. Update TV app: `sudo QF_TV_VERSION=v1.0.7 ./scripts/install-qf-tv-update.sh && sudo systemctl restart qf-tv`
+6. Update TV app (on **TV box** — script is not in `$HOME`; download first):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
+sudo env QF_TV_VERSION=v1.0.7 bash /tmp/qf-tv-update.sh
+```
+
+Uses existing `/etc/qf-tv/config.json` for `api_host`. Restarts `lightdm` (not `qf-tv` systemd).
 
 Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6001 while HTTP is on 8000.
 

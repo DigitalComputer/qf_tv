@@ -287,10 +287,10 @@ class ApiService {
     return ActivateResult.fromJson(data);
   }
 
-  Future<QueueState> getQueue(String displayId, String token) async {
+  Future<QueueState> getQueue(String token) async {
     final data = _unwrap(await ApiHttp
         .get(
-          Uri.parse('$baseUrl/api/v1/tv/displays/$displayId/queue'),
+          Uri.parse('$baseUrl/api/v1/tv/queue'),
           headers: _headers(token),
         )
         .timeout(_timeout)) as Map<String, dynamic>;
@@ -307,7 +307,7 @@ class ApiService {
     return DisplayTemplate.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
-  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId})>
+  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId, String displayId})>
       bootstrap(String token) async {
     final data = _unwrap(await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/bootstrap'), headers: _headers(token))
@@ -319,6 +319,7 @@ class ApiService {
       reverb: ReverbConfig.fromJson(data['reverb']),
       tenantId: data['tenant_id']?.toString() ?? '',
       branchId: data['branch_id']?.toString() ?? '',
+      displayId: data['display_id']?.toString() ?? '',
     );
   }
 }
