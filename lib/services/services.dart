@@ -76,11 +76,7 @@ class ConfigService {
     return _cachedCentralHost;
   }
 
-  static Future<bool> usesCentralDiscovery() async {
-    final central = await centralHost();
-    return central != null && central.isNotEmpty;
-  }
-
+  /// Tenant API base URL — never falls back to [centralHost] (central is discovery-only).
   static Future<String> apiHost() async {
     if (_cachedHost != null) return _cachedHost!;
 
@@ -96,14 +92,20 @@ class ConfigService {
       }
     } catch (_) {}
 
-    final central = await centralHost();
-    if (central != null && central.isNotEmpty) {
-      _cachedHost = central;
+    final session = await StorageService.getSession();
+    final saved = session['api_host'];
+    if (saved != null && saved.isNotEmpty) {
+      _cachedHost = saved.endsWith('/') ? saved.substring(0, saved.length - 1) : saved;
       return _cachedHost!;
     }
 
     _cachedHost = kDefaultApiHost;
     return _cachedHost!;
+  }
+
+  static Future<bool> usesCentralDiscovery() async {
+    final central = await centralHost();
+    return central != null && central.isNotEmpty;
   }
 }
 
@@ -194,10 +196,57 @@ class ApiService {
     if (primary != config) add(config);
 
     for (final host in candidates) {
-      if (await ApiService(host).ping()) return host;
+      if (await ApiService(host).isReachable()) return host;
     }
 
     throw Exception('Servidor indisponível ($primary)');
+  }
+
+  /// Resolve tenant API host — saved session, registry screen, or config (never central).
+  static Future<String> resolveTenantApiHost({
+    String? preferred,
+    String? displayId,
+  }) async {
+    if (preferred != null && preferred.isNotEmpty) {
+      return resolveReachableHost(preferred);
+    }
+
+    final session = await StorageService.getSession();
+    final saved = session['api_host'];
+    if (saved != null && saved.isNotEmpty) {
+      return resolveReachableHost(saved);
+    }
+
+    if (displayId != null &&
+        displayId.isNotEmpty &&
+        await ConfigService.usesCentralDiscovery()) {
+      final central = await ConfigService.centralHost();
+      if (central != null && central.isNotEmpty) {
+        final centralBase = await resolveReachableHost(central);
+        final screens =
+            await ApiService(centralBase).getScreensFromCentral(centralBase);
+        for (final screen in screens) {
+          if (screen.id == displayId && screen.apiHost.isNotEmpty) {
+            return resolveReachableHost(screen.apiHost);
+          }
+        }
+      }
+    }
+
+    return resolveReachableHost(await ConfigService.apiHost());
+  }
+
+  static Future<bool> _isCentralHost(String url) async {
+    final central = await ConfigService.centralHost();
+    if (central == null || central.isEmpty) return false;
+    return normalizeApiBaseUrl(url) == normalizeApiBaseUrl(central);
+  }
+
+  Future<bool> isReachable() async {
+    if (await _isCentralHost(baseUrl)) {
+      return pingCentral();
+    }
+    return ping();
   }
 
   Map<String, String> _headers([String? token]) => {
@@ -218,6 +267,17 @@ class ApiService {
     }
     if (body is Map && body['data'] != null) return body['data'];
     return body;
+  }
+
+  Future<bool> pingCentral() async {
+    try {
+      final r = await ApiHttp
+          .get(Uri.parse('$baseUrl/api/v1/tv/screens'), headers: _headers())
+          .timeout(_timeout);
+      return r.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> ping() async {
@@ -307,7 +367,7 @@ class ApiService {
     return DisplayTemplate.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
-  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId, String displayId})>
+  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId, String displayId, String apiHost})>
       bootstrap(String token) async {
     final data = _unwrap(await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/bootstrap'), headers: _headers(token))
@@ -320,6 +380,7 @@ class ApiService {
       tenantId: data['tenant_id']?.toString() ?? '',
       branchId: data['branch_id']?.toString() ?? '',
       displayId: data['display_id']?.toString() ?? '',
+      apiHost: data['api_host']?.toString() ?? '',
     );
   }
 }

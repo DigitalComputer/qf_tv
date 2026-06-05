@@ -10,7 +10,7 @@ typedef ReverbEventCallback = void Function(Map<String, dynamic>? payload);
 
 enum ReverbConnectionState { disconnected, connecting, connected, error }
 
-/// Laravel Reverb client — public channel `tenant.{id}.branch.{id}.calls`.
+/// Laravel Reverb — branch calls + branch queues channels.
 class ReverbService {
   ReverbService({
     required this.config,
@@ -28,17 +28,16 @@ class ReverbService {
 
   PusherChannelsClient? _client;
   StreamSubscription? _connectedSub;
-  StreamSubscription? _eventSub;
+  final List<StreamSubscription> _eventSubs = [];
   Timer? _pollTimer;
   bool _disposed = false;
   int _reconnectAttempt = 0;
 
   static const _pollInterval = Duration(seconds: 3);
-  static const _channelEvent = 'ticket.called';
+  static const _connectedPollInterval = Duration(seconds: 8);
 
-  String get _channelName => 'tenant.$tenantId.branch.$branchId.calls';
-
-  bool get isConnected => _client != null && !_disposed;
+  String get _callsChannel => 'tenant.$tenantId.branch.$branchId.calls';
+  String get _queuesChannel => 'tenant.$tenantId.branch.$branchId.queues';
 
   void connect() {
     if (_disposed || tenantId.isEmpty || branchId.isEmpty || config.key.isEmpty) {
@@ -74,32 +73,47 @@ class ReverbService {
     );
 
     _client = client;
-    final channel = client.publicChannel(_channelName);
+    final calls = client.publicChannel(_callsChannel);
+    final queues = client.publicChannel(_queuesChannel);
+
+    void bind(Channel channel, String event) {
+      _eventSubs.add(channel.bind(event).listen((e) => _emitPayload(e.data)));
+    }
+
+    void bindAny(Channel channel, List<String> events) {
+      for (final event in events) {
+        bind(channel, event);
+      }
+    }
+
+    bindAny(calls, ['ticket.called', 'ticket.issued', 'ticket.served', 'ticket.completed']);
+    bindAny(queues, ['QueueUpdated', 'queue.updated']);
 
     _connectedSub = client.onConnectionEstablished.listen((_) {
       _reconnectAttempt = 0;
-      _pollTimer?.cancel();
       onStateChange(ReverbConnectionState.connected);
-      channel.subscribe();
-      debugPrint('qf_tv Reverb connected — $_channelName');
-    });
-
-    _eventSub = channel.bind(_channelEvent).listen((event) {
-      Map<String, dynamic>? payload;
-      try {
-        final decoded = jsonDecode(event.data);
-        if (decoded is Map<String, dynamic>) {
-          payload = decoded;
-        } else if (decoded is Map) {
-          payload = Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        payload = null;
-      }
-      onEvent(payload);
+      calls.subscribe();
+      queues.subscribe();
+      _startConnectedPoll();
+      debugPrint('qf_tv Reverb connected — $_callsChannel + $_queuesChannel');
     });
 
     client.connect();
+  }
+
+  void _emitPayload(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        onEvent(decoded);
+      } else if (decoded is Map) {
+        onEvent(Map<String, dynamic>.from(decoded));
+      } else {
+        onEvent(null);
+      }
+    } catch (_) {
+      onEvent(null);
+    }
   }
 
   void _scheduleReconnect(void Function() refresh) {
@@ -107,9 +121,7 @@ class ReverbService {
     final delay = Duration(seconds: (2 << _reconnectAttempt.clamp(0, 4)).clamp(2, 32));
     _reconnectAttempt++;
     Future.delayed(delay, () {
-      if (!_disposed) {
-        refresh();
-      }
+      if (!_disposed) refresh();
     });
   }
 
@@ -121,11 +133,22 @@ class ReverbService {
     });
   }
 
+  /// Safety net while WS connected — issue/call events can be missed or race HTTP refresh.
+  void _startConnectedPoll() {
+    if (_disposed) return;
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(_connectedPollInterval, (_) {
+      if (!_disposed) onEvent(null);
+    });
+  }
+
   void _disposeClient({bool keepPoll = false}) {
     _connectedSub?.cancel();
-    _eventSub?.cancel();
     _connectedSub = null;
-    _eventSub = null;
+    for (final sub in _eventSubs) {
+      sub.cancel();
+    }
+    _eventSubs.clear();
     try {
       _client?.dispose();
     } catch (_) {}

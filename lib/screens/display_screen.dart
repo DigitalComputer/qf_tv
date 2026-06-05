@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -29,6 +31,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
   bool _loading = true;
   String? _errorMessage;
   String? _lastAnnouncedCode;
+  int _refreshGeneration = 0;
+  Timer? _refreshDebounce;
 
   bool _ctrlPPressed = false;
   DateTime? _ctrlPAt;
@@ -105,8 +109,9 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
   Future<void> _bootstrap() async {
     try {
-      final host = await ApiService.resolveReachableHost(
-        widget.session.apiHost.isNotEmpty ? widget.session.apiHost : null,
+      final host = await ApiService.resolveTenantApiHost(
+        preferred: widget.session.apiHost.isNotEmpty ? widget.session.apiHost : null,
+        displayId: widget.session.displayId,
       );
       final api = ApiService(host);
       _api = api;
@@ -114,13 +119,17 @@ class _DisplayScreenState extends State<DisplayScreen> {
       final boot = await api.bootstrap(_token);
       if (!mounted) return;
 
+      final tenantHost = boot.apiHost.isNotEmpty
+          ? await ApiService.resolveReachableHost(boot.apiHost)
+          : host;
+
       await _persistSession(
         displayId: boot.displayId,
         displayName: widget.session.displayName,
         branchId: boot.branchId,
         templateId: boot.template.id,
         tenantId: boot.tenantId,
-        apiHost: host,
+        apiHost: tenantHost,
       );
 
       setState(() {
@@ -136,7 +145,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
         config: boot.reverb,
         tenantId: boot.tenantId,
         branchId: boot.branchId,
-        onEvent: (_) => _refreshQueue(),
+        onEvent: (_) => _scheduleRefresh(),
         onStateChange: (state) {
           if (mounted) setState(() => _reverbState = state);
         },
@@ -154,10 +163,18 @@ class _DisplayScreenState extends State<DisplayScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  void _scheduleRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 120), () {
+      if (mounted) _refreshQueue();
+    });
+  }
+
   Future<void> _refreshQueue() async {
+    final generation = ++_refreshGeneration;
     try {
       final state = await _api.getQueue(_token);
-      if (!mounted) return;
+      if (!mounted || generation != _refreshGeneration) return;
       setState(() {
         _queueState = state;
         _errorMessage = null;
@@ -165,11 +182,10 @@ class _DisplayScreenState extends State<DisplayScreen> {
       _maybeAnnounce(state.nowCalling);
     } catch (e, st) {
       debugPrint('qf_tv queue refresh failed: $e\n$st');
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
+      if (!mounted || generation != _refreshGeneration) return;
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -229,6 +245,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
   @override
   void dispose() {
+    _refreshDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleUnlockSequence);
     _announce.stop();
     _reverb?.dispose();

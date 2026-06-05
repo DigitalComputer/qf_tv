@@ -125,6 +125,9 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
           : await ApiService.resolveReachableHost();
       final api = ApiService(host);
       final result = await api.activate(display.id);
+      final tenantHost = result.apiHost.isNotEmpty
+          ? await ApiService.resolveReachableHost(result.apiHost)
+          : host;
       final session = ActivateResult(
         displayId: result.displayId,
         displayName: result.displayName,
@@ -132,7 +135,7 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
         templateId: result.templateId,
         token: result.token,
         tenantId: result.tenantId,
-        apiHost: host,
+        apiHost: tenantHost,
         reverb: result.reverb,
       );
       await StorageService.saveSession(session);

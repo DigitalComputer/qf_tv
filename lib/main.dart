@@ -71,13 +71,17 @@ class _BootScreenState extends State<_BootScreen> {
       return const DisplayPickerScreen();
     }
 
-    final host = await ApiService.resolveReachableHost(
-      (apiHost != null && apiHost.isNotEmpty) ? apiHost : null,
+    final host = await ApiService.resolveTenantApiHost(
+      preferred: apiHost,
+      displayId: displayId,
     );
     final api = ApiService(host);
 
     try {
       final boot = await api.bootstrap(token);
+      final resolvedHost = boot.apiHost.isNotEmpty
+          ? await ApiService.resolveReachableHost(boot.apiHost)
+          : host;
       return DisplayScreen(
         session: ActivateResult(
           displayId: boot.displayId.isNotEmpty ? boot.displayId : displayId,
@@ -86,7 +90,7 @@ class _BootScreenState extends State<_BootScreen> {
           templateId: boot.template.id,
           token: token,
           tenantId: boot.tenantId,
-          apiHost: host,
+          apiHost: resolvedHost,
           reverb: boot.reverb,
         ),
       );

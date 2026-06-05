@@ -241,13 +241,24 @@ ok "App installed to ${INSTALL_DIR} (${TAG})"
 log "Writing ${CONFIG_FILE}..."
 mkdir -p "$CONFIG_DIR"
 if [[ -n "$QF_CENTRAL_HOST" ]]; then
-  cat > "$CONFIG_FILE" <<EOF
+  if [[ -n "$QF_API_HOST" ]]; then
+    cat > "$CONFIG_FILE" <<EOF
+{
+  "central_host": "${QF_CENTRAL_HOST}",
+  "api_host": "${QF_API_HOST}",
+  "release": "${TAG}",
+  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+  else
+    cat > "$CONFIG_FILE" <<EOF
 {
   "central_host": "${QF_CENTRAL_HOST}",
   "release": "${TAG}",
   "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
+  fi
 else
   cat > "$CONFIG_FILE" <<EOF
 {
