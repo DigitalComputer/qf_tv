@@ -1,6 +1,10 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_win_floating/webview_plugin.dart' show WindowsPlatformWebViewController;
+import 'package:webview_win_floating/webview_win_floating.dart' show WinNavigationDelegate;
 
 import '../models/models.dart';
 
@@ -15,14 +19,20 @@ class TvMediaContent extends StatefulWidget {
 }
 
 class _TvMediaContentState extends State<TvMediaContent> {
+  static const _embedOrigin = 'https://queueflow.local';
+
   VideoPlayerController? _videoCtrl;
   WebViewController? _webCtrl;
   bool _videoFailed = false;
+  bool _webFailed = false;
+  bool _webReady = false;
 
   @override
   void initState() {
     super.initState();
-    _init();
+    // Defer WebView init until Zone C has layout bounds (webview_win_floating
+    // is a native overlay — loading before layout can cover the full window).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
 
   @override
@@ -31,11 +41,14 @@ class _TvMediaContentState extends State<TvMediaContent> {
     if (oldWidget.item.id != widget.item.id || oldWidget.item.url != widget.item.url) {
       _disposePlayers();
       _videoFailed = false;
-      _init();
+      _webFailed = false;
+      _webReady = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _init());
     }
   }
 
   Future<void> _init() async {
+    if (!mounted) return;
     final url = widget.item.url;
     if (url == null || url.isEmpty) return;
 
@@ -43,9 +56,9 @@ class _TvMediaContentState extends State<TvMediaContent> {
       case 'video':
         await _initVideo(url);
       case 'youtube':
-        _initWebView(_youtubeEmbedUrl(url));
+        _initYouTubeWebView(url);
       case 'iframe':
-        _initWebView(url);
+        _initIframeWebView(url);
       default:
         break;
     }
@@ -65,23 +78,98 @@ class _TvMediaContentState extends State<TvMediaContent> {
       await ctrl.dispose();
       _videoCtrl = null;
       _videoFailed = true;
-      _initWebView(_videoHtmlDataUrl(url));
+      _initGenericWebView(_videoHtmlDataUrl(url));
       if (mounted) setState(() {});
     }
   }
 
-  void _initWebView(String loadUrl) {
+  void _initYouTubeWebView(String url) {
+    final id = _youtubeId(url);
+    final html = '''
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+</head><body>
+<iframe
+  src="https://www.youtube-nocookie.com/embed/$id?autoplay=1&mute=1&loop=1&playlist=$id&controls=0&playsinline=1&rel=0"
+  referrerpolicy="strict-origin-when-cross-origin"
+  allow="autoplay; encrypted-media; fullscreen"
+></iframe>
+</body></html>''';
+    _initHtmlWebView(html);
+  }
+
+  void _initIframeWebView(String url) {
+    final safe = url.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+    final html = '''
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+</head><body>
+<iframe src="$safe" referrerpolicy="strict-origin-when-cross-origin"
+  sandbox="allow-scripts allow-same-origin allow-presentation"
+  allow="autoplay; encrypted-media; fullscreen"></iframe>
+</body></html>''';
+    _initHtmlWebView(html);
+  }
+
+  void _initGenericWebView(String loadUrl) {
+    final ctrl = _createWebController();
+    ctrl.loadRequest(Uri.parse(loadUrl));
+    _webCtrl = ctrl;
+    _markWebReady();
+  }
+
+  void _initHtmlWebView(String html) {
+    final ctrl = _createWebController();
+    ctrl.loadHtmlString(html, baseUrl: _embedOrigin);
+    _webCtrl = ctrl;
+    _markWebReady();
+  }
+
+  WebViewController _createWebController() {
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..loadRequest(Uri.parse(loadUrl));
-    _webCtrl = ctrl;
-    if (mounted) setState(() {});
+      ..setBackgroundColor(Colors.black);
+
+    if (Platform.isLinux) {
+      final platform = ctrl.platform;
+      if (platform is WindowsPlatformWebViewController) {
+        platform.controller.setNavigationDelegate(
+          WinNavigationDelegate(
+            onFullScreenChanged: (isFullScreen) {
+              // YouTube fullscreen expands native overlay over entire Flutter UI.
+              if (isFullScreen) platform.controller.setFullScreen(false);
+            },
+            onWebResourceError: (_) {
+              if (mounted) setState(() => _webFailed = true);
+            },
+          ),
+        );
+      }
+    }
+
+    return ctrl;
+  }
+
+  void _markWebReady() {
+    if (!mounted) return;
+    setState(() => _webReady = true);
   }
 
   void _disposePlayers() {
     _videoCtrl?.dispose();
     _videoCtrl = null;
+    if (_webCtrl != null && Platform.isLinux) {
+      final platform = _webCtrl!.platform;
+      if (platform is WindowsPlatformWebViewController) {
+        platform.controller.setVisibility(false);
+      }
+    }
     _webCtrl = null;
   }
 
@@ -130,13 +218,15 @@ class _TvMediaContentState extends State<TvMediaContent> {
             ),
           );
         }
-        if (_webCtrl != null) {
+        if (_webFailed) return _mediaFallback(item);
+        if (_webCtrl != null && _webReady) {
           return WebViewWidget(controller: _webCtrl!);
         }
         return const ColoredBox(color: Colors.black);
       case 'youtube':
       case 'iframe':
-        if (_webCtrl != null) {
+        if (_webFailed) return _mediaFallback(item);
+        if (_webCtrl != null && _webReady) {
           return WebViewWidget(controller: _webCtrl!);
         }
         return const ColoredBox(color: Colors.black);
@@ -150,10 +240,47 @@ class _TvMediaContentState extends State<TvMediaContent> {
     }
   }
 
-  static String _youtubeEmbedUrl(String url) {
-    final id = RegExp(r'(?:v=|youtu\.be/)([^&?/]+)').firstMatch(url)?.group(1) ?? url;
-    return 'https://www.youtube.com/embed/$id'
-        '?autoplay=1&mute=1&loop=1&playlist=$id&controls=0&rel=0';
+  Widget _mediaFallback(TvMediaItem item) {
+    final url = item.url;
+    if (item.kind == 'youtube' && url != null && url.isNotEmpty) {
+      final thumb = _youtubeThumbnail(url);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            thumb,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                item.title ?? 'Vídeo indisponível',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 20),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return Center(
+      child: Text(
+        item.title ?? item.kind.toUpperCase(),
+        style: const TextStyle(color: Colors.white38, fontSize: 24),
+      ),
+    );
+  }
+
+  static String _youtubeId(String url) {
+    return RegExp(r'(?:v=|youtu\.be/)([^&?/]+)').firstMatch(url)?.group(1) ?? url;
+  }
+
+  static String _youtubeThumbnail(String url) {
+    return 'https://img.youtube.com/vi/${_youtubeId(url)}/hqdefault.jpg';
   }
 
   /// HLS / direct video fallback via WebKit (same approach as qf_screen Hls.js).

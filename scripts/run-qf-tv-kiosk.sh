@@ -9,7 +9,10 @@ export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
 export GDK_SYNCHRONIZE="${GDK_SYNCHRONIZE:-0}"
 
 configure_audio() {
-  # PulseAudio/PipeWire — prefer 3.5mm analog over HDMI on rk3568 TV boxes
+  # PulseAudio/PipeWire — prefer 3.5mm analog over HDMI on rk3568 TV boxes.
+  # Must run in kiosk graphical session (openbox autostart), not bare SSH.
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
   if command -v pactl &>/dev/null; then
     if ! pactl info &>/dev/null 2>&1; then
       pulseaudio --start --daemonize 2>/dev/null || true

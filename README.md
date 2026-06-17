@@ -18,6 +18,13 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.14
+
+- Fix YouTube error 153: iframe via `loadHtmlString` + Referer `baseUrl` (direct embed lacked HTTP Referer)
+- Fix black-screen regression: defer WebView init until Zone C laid out; block YouTube fullscreen overlay
+- YouTube embed failure → thumbnail + title fallback (queue zones stay visible)
+- Docs: kernel-level audio troubleshooting when `aplay -l` empty
+
 ## v1.0.13
 
 - Fix Zone C video: `video_player` + WebKit embed for YouTube/iframe (was title-only stub)

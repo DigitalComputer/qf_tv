@@ -389,17 +389,20 @@ Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
-sudo env QF_TV_VERSION=v1.0.13 \
+sudo env QF_TV_VERSION=v1.0.14 \
      QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
      bash /tmp/qf-tv-update.sh
 ```
 
-**Verify audio routing (SSH):**
+**Verify audio routing (SSH — use kiosk session, not bare TTY):**
 
 ```bash
-pactl list short sinks          # expect analog/ES8388 sink
-aplay -l                        # note card N for 3.5mm
-speaker-test -D plughw:N,0 -c 2 # should hear tone on jack
+# PulseAudio runs in kiosk GUI session; bare SSH often shows "Connection refused"
+KUID=$(id -u kiosk)
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID pactl list short sinks
+
+aplay -l                        # must list ES8388/codec card — see below if empty
+speaker-test -D plughw:N,0 -c 2 # replace N with card from aplay -l
 espeak-ng -v pt "teste"         # TTS fallback
 ```
 
@@ -413,6 +416,64 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
 ```
 
 Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. API returns raw `url` from `tv_media_items` table — no transform.
+
+### Black screen + YouTube error 153 (v1.0.13 regression, fixed v1.0.14)
+
+**Symptoms:** Entire display black except YouTube “Error 153 — Video player configuration error”; queue zones (ticket number, waiting list, ticker) invisible.
+
+**Root causes:**
+
+1. **YouTube 153:** `loadRequest()` to `youtube.com/embed/…` sends no HTTP Referer. YouTube now requires Referer (error code 153 per [IFrame API](https://developers.google.com/youtube/iframe_api_reference)).
+2. **Layout blackout:** `webview_win_floating` renders a **native WebKit overlay on top of Flutter**. Loading before Zone C has layout bounds, or YouTube entering fullscreen, can cover the whole window — Flutter queue UI sits underneath and disappears.
+
+**App fix (v1.0.14):** YouTube/iframe load via `loadHtmlString` + iframe + `baseUrl: https://queueflow.local`; WebView init deferred until after first frame; fullscreen requests blocked on Linux; thumbnail fallback on embed failure.
+
+**Install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
+sudo env QF_TV_VERSION=v1.0.14 \
+     QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
+     bash /tmp/qf-tv-update.sh
+```
+
+After install: queue zones A/B/D visible again; Zone C plays YouTube or shows thumbnail + title if embed still blocked.
+
+### No soundcards at OS level (`aplay -l` empty)
+
+**Symptoms:** `aplay -l` → no cards; `espeak-ng` → “cannot find card '0'”; `pactl` → Connection refused over SSH.
+
+This is a **kernel / device-tree driver issue**, not qf_tv app code. The analog codec (ES8388 on rk3568 TV boxes) is not probed.
+
+**Diagnose on TV box:**
+
+```bash
+uname -r
+lsmod | grep snd
+cat /proc/asound/cards
+dmesg | grep -iE 'es8388|es8328|audio|snd|i2s' | tail -30
+```
+
+| Check | Healthy | Broken |
+|-------|---------|--------|
+| `/proc/asound/cards` | `ES8388` or `rockchip-es8388` | `- no soundcards -` |
+| `lsmod \| grep snd_soc` | `snd_soc_es8328` or similar loaded | empty |
+| `pactl` (kiosk session) | lists analog sink | Connection refused (SSH) or no sinks |
+
+**Fixes (hardware/kernel — pick what matches your board):**
+
+1. **Wrong kernel image** — TV boxes need vendor or Armbian build with ES8388 DTS enabled. Generic Ubuntu server ISO may ship kernel without analog codec nodes.
+2. **Module not loaded** — try `sudo modprobe snd-soc-es8328` then `aplay -l` again (harmless if DTS missing).
+3. **PipeWire vs PulseAudio** — install script adds `pulseaudio`; if distro uses PipeWire only, install `pipewire-pulse` and reboot.
+4. **Test in GUI session** — audio daemons attach to kiosk login, not SSH:
+
+```bash
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$(id -u kiosk) pactl list short sinks
+```
+
+5. **Board firmware** — rk3568 analog jack needs I2S + ES8388 in device tree (regulators + MCLK). May require vendor BIOS/kernel update or Armbian image with correct DT overlay.
+
+Until `aplay -l` shows a card, `run-qf-tv-kiosk.sh` cannot route TTS/announce to the 3.5mm jack — fix kernel/driver first, then re-run update script for PulseAudio packages.
 
 ### Wrong display stuck
 
