@@ -18,6 +18,13 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.13
+
+- Fix Zone C video: `video_player` + WebKit embed for YouTube/iframe (was title-only stub)
+- HLS `.m3u8` fallback via WebKit + hls.js (qf_screen parity)
+- Audio: route to analog jack (PulseAudio sink + ALSA), `paplay`/`mpg123` MP3 fallback
+- Install deps: WebKitGTK, GStreamer bad/libav, pulseaudio, mpg123
+
 ## v1.0.12
 
 - Sound: API neural TTS (`/api/v1/display/announce`) like qf_screen — espeak fallback

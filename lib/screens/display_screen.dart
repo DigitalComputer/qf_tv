@@ -65,8 +65,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
         HardwareKeyboard.instance.isControlPressed) {
       _ctrlPPressed = true;
       _ctrlPAt = DateTime.now();
-      return true;
-    }
+        return true;
+      }
 
     if (event.logicalKey == LogicalKeyboardKey.keyP &&
         HardwareKeyboard.instance.isAltPressed &&
@@ -74,8 +74,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
         _ctrlPAt != null &&
         DateTime.now().difference(_ctrlPAt!) < const Duration(seconds: 2)) {
       _goToPicker();
-      return true;
-    }
+        return true;
+      }
 
     if (_ctrlPAt != null &&
         DateTime.now().difference(_ctrlPAt!) > const Duration(seconds: 2)) {
@@ -299,7 +299,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
                   ),
                 ),
               ),
-            ),
+          ),
         ],
       ),
     );

@@ -4,7 +4,9 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
+  fullscreen_window
   screen_retriever
+  webview_win_floating
   window_manager
 )
 

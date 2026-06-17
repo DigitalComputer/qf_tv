@@ -84,14 +84,19 @@ chmod +x "${INSTALL_DIR}/qf_tv"
 
 log "Install launcher"
 LAUNCHER="${INSTALL_DIR}/run-qf-tv.sh"
-cat > "$LAUNCHER" <<'EOF'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/run-qf-tv-kiosk.sh" ]]; then
+  install -m 755 "${SCRIPT_DIR}/run-qf-tv-kiosk.sh" "$LAUNCHER"
+else
+  cat > "$LAUNCHER" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/qf-tv}"
 export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
 exec "${INSTALL_DIR}/qf_tv" "$@"
 EOF
-chmod 755 "$LAUNCHER"
+  chmod 755 "$LAUNCHER"
+fi
 
 log "Disable legacy systemd qf-tv (openbox owns the app — avoids duplicate processes)"
 if systemctl is-enabled qf-tv.service &>/dev/null; then
@@ -117,9 +122,15 @@ UNIT
   systemctl disable --now qf-tv.service 2>/dev/null || true
 fi
 
-log "TTS + audio (espeak-ng + GStreamer for API announce MP3)"
+log "TTS + audio + video (espeak-ng, GStreamer, WebKitGTK for YouTube/HLS)"
 apt-get install -y -qq espeak-ng 2>/dev/null || apt-get install -y -qq espeak 2>/dev/null || true
-apt-get install -y -qq alsa-utils libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good 2>/dev/null || true
+apt-get install -y -qq \
+  alsa-utils pulseaudio pulseaudio-utils mpg123 \
+  libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-plugins-ugly \
+  libwebkit2gtk-4.1-0 libsoup-3.0-0 \
+  2>/dev/null || true
 
 if [[ -n "$QF_API_HOST" ]]; then
   host="$(ensure_api_port "${QF_API_HOST%/}")"

@@ -129,9 +129,14 @@ apt-get install -y -qq \
   curl jq ca-certificates \
   xorg xserver-xorg-video-all x11-xserver-utils \
   openbox lightdm unclutter espeak-ng \
+  alsa-utils pulseaudio pulseaudio-utils mpg123 \
   dbus-x11 \
   libgtk-3-0 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
   libgl1 libegl1 libgles2 libgl1-mesa-dri \
+  libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-plugins-ugly \
+  libwebkit2gtk-4.1-0 libsoup-3.0-0 \
   fonts-dejavu-core \
   >/dev/null 2>&1 || apt-get install -y -qq \
   libgtk-3-0t64 libblkid1 liblzma5 libstdc++6 libglu1-mesa \

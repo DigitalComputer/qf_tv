@@ -1,9 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
+import 'linux_audio.dart';
 import 'services.dart';
 
 /// Portuguese ticket announcements — API neural MP3 (same as qf_screen) + espeak fallback.
@@ -115,8 +115,26 @@ class AnnounceService {
 
   Future<void> _playBytes(List<int> bytes) async {
     await _player.stop();
-    await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
-    await _player.onPlayerComplete.first;
+    try {
+      await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
+      await _player.onPlayerComplete.first;
+      return;
+    } catch (e) {
+      debugPrint('qf_tv audioplayers failed, system fallback: $e');
+    }
+
+    if (Platform.isLinux) {
+      final tmp = File(
+        '${Directory.systemTemp.path}/qf_tv_announce_${DateTime.now().millisecondsSinceEpoch}.mp3',
+      );
+      try {
+        await tmp.writeAsBytes(bytes);
+        final ok = await LinuxAudio.playMp3File(tmp.path);
+        if (!ok) throw StateError('no Linux MP3 player');
+      } finally {
+        if (await tmp.exists()) await tmp.delete();
+      }
+    }
   }
 
   Future<void> _drainQueue() async {
@@ -144,11 +162,7 @@ class AnnounceService {
 
   Future<void> _speakEspeak(String text) async {
     if (!Platform.isLinux) return;
-    await Process.run(
-      'espeak-ng',
-      ['-v', 'pt', '-s', '120', text],
-      runInShell: false,
-    );
+    await LinuxAudio.speakEspeak(text);
   }
 
   String _spellCode(String code) {

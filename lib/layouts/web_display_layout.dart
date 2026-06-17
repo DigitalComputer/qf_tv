@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import '../models/models.dart';
+import '../widgets/tv_media_content.dart';
 
 /// Brand tokens — match qf_screen index.css
 class WebDisplayColors {
@@ -532,34 +533,14 @@ class _ZoneCState extends State<_ZoneC> {
     }
 
     final active = widget.items[_idx % widget.items.length];
-    final url = active.url;
-
-    Widget content;
-    if (url == null || url.isEmpty) {
-      content = const SizedBox.shrink();
-    } else if (active.kind == 'image' || active.kind == 'logo') {
-      content = active.kind == 'logo'
-          ? ColoredBox(
-              color: Colors.white,
-              child: Center(
-                child: Image.network(url, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const SizedBox()),
-              ),
-            )
-          : Image.network(url, fit: BoxFit.cover, width: double.infinity, height: double.infinity,
-              errorBuilder: (_, __, ___) => const SizedBox());
-    } else {
-      content = Center(
-        child: Text(
-          active.title ?? active.kind.toUpperCase(),
-          style: const TextStyle(color: Colors.white38, fontSize: 24),
-        ),
-      );
-    }
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        ColoredBox(color: Colors.black, child: content),
+        ColoredBox(
+          color: Colors.black,
+          child: TvMediaContent(key: ValueKey(active.id), item: active),
+        ),
         if (widget.items.length > 1)
           Positioned(
             bottom: 12,

@@ -379,6 +379,41 @@ Uses existing `/etc/qf-tv/config.json` for `api_host`. Restarts `lightdm` (not `
 
 Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6001 while HTTP is on 8000.
 
+### Video shows title only / no sound on 3.5mm jack (v1.0.13+)
+
+**Symptoms:** Zone C shows media **title** text but no YouTube/video; announce MP3 silent on aux jack (VGA + 3.5mm rk3568).
+
+**Root cause (fixed in v1.0.13):** `_ZoneC` was a stub — only `image`/`logo` rendered; `youtube`/`video`/`iframe` showed title placeholder. Audio went to default HDMI sink, not analog jack.
+
+**Fix on TV box:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
+sudo env QF_TV_VERSION=v1.0.13 \
+     QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
+     bash /tmp/qf-tv-update.sh
+```
+
+**Verify audio routing (SSH):**
+
+```bash
+pactl list short sinks          # expect analog/ES8388 sink
+aplay -l                        # note card N for 3.5mm
+speaker-test -D plughw:N,0 -c 2 # should hear tone on jack
+espeak-ng -v pt "teste"         # TTS fallback
+```
+
+**Verify media config from API** (needs display token from activate):
+
+```bash
+API=$(jq -r .api_host /etc/qf-tv/config.json)
+TOKEN=$(jq -r '.["flutter.display_token"]' /home/kiosk/.local/share/com.example.qf_tv/shared_preferences.json)
+curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
+  "$API/api/v1/display/config" | jq '.data.media_items[] | {kind,title,url}'
+```
+
+Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. API returns raw `url` from `tv_media_items` table — no transform.
+
 ### Wrong display stuck
 
 **Ctrl+P** then **Alt+P** → picker → select again.
