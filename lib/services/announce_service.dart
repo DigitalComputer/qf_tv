@@ -19,6 +19,15 @@ class AnnounceService {
   bool _speaking = false;
   final List<Future<void> Function()> _queue = [];
 
+  /// Gap between announce plays while call active (matches qf_screen poll interval).
+  static const repeatPause = Duration(seconds: 10);
+
+  bool _callingLoopActive = false;
+  String? _callingLoopCode;
+  int? _callingLoopCounterNumber;
+  String? _callingLoopCounterLabel;
+  int _callingLoopGeneration = 0;
+
   static const _digitPt = {
     '0': 'zero',
     '1': 'um',
@@ -84,6 +93,72 @@ class AnnounceService {
     if (bytes.length < 128) return false;
     if (bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) return true; // ID3
     return bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0; // MPEG sync
+  }
+
+  /// Repeat neural/espeak announce every [repeatPause] until [stopCallingLoop].
+  Future<void> startCallingLoop(
+    String displayCode, {
+    int? counterNumber,
+    String? counterLabel,
+  }) async {
+    if (displayCode.isEmpty) return;
+    final digits = displayCode.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return;
+
+    await init();
+
+    if (_callingLoopActive && _callingLoopCode == displayCode) return;
+
+    await stopCallingLoop();
+
+    _callingLoopCode = displayCode;
+    _callingLoopCounterNumber = counterNumber;
+    _callingLoopCounterLabel = counterLabel;
+    _callingLoopActive = true;
+    final generation = ++_callingLoopGeneration;
+    _runCallingLoop(generation);
+  }
+
+  Future<void> stopCallingLoop() async {
+    _callingLoopGeneration++;
+    _callingLoopActive = false;
+    _callingLoopCode = null;
+    _callingLoopCounterNumber = null;
+    _callingLoopCounterLabel = null;
+    await stop();
+  }
+
+  Future<void> _runCallingLoop(int generation) async {
+    while (
+      _callingLoopActive &&
+      generation == _callingLoopGeneration &&
+      _callingLoopCode != null
+    ) {
+      final code = _callingLoopCode!;
+      final counterNumber = _callingLoopCounterNumber;
+      final counterLabel = _callingLoopCounterLabel;
+
+      try {
+        await _announce(
+          code,
+          counterNumber: counterNumber,
+          counterLabel: counterLabel,
+        );
+      } catch (e) {
+        debugPrint('qf_tv calling loop announce error: $e');
+      }
+
+      if (!_callingLoopActive || generation != _callingLoopGeneration) break;
+
+      final pauseUntil = DateTime.now().add(repeatPause);
+      while (
+        _callingLoopActive &&
+        generation == _callingLoopGeneration &&
+        DateTime.now().isBefore(pauseUntil)
+      ) {
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+    }
   }
 
   Future<void> announceTicket(
@@ -215,6 +290,8 @@ class AnnounceService {
   }
 
   Future<void> stop() async {
+    _callingLoopGeneration++;
+    _callingLoopActive = false;
     _queue.clear();
     await _player.stop();
     if (Platform.isLinux) {

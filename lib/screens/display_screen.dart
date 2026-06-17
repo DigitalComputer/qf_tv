@@ -40,7 +40,6 @@ class _DisplayScreenState extends State<DisplayScreen> {
   bool _connected = false;
   bool _loading = true;
   String? _errorMessage;
-  String? _lastAnnouncedCode;
   int _refreshGeneration = 0;
   Timer? _refreshDebounce;
   Timer? _pollTimer;
@@ -114,6 +113,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
       if (!mounted) return;
 
       _applyState(state);
+      _syncCallingAnnounce(state);
+
       setState(() {
         _config = config;
         _connected = true;
@@ -169,9 +170,10 @@ class _DisplayScreenState extends State<DisplayScreen> {
       }
 
       if (code.isNotEmpty && (_config?.ttsEnabled ?? true)) {
-        _announceTicket(code, counterNumber: ctrNum, counterName: ctr);
+        _startCallingAnnounce(code, counterNumber: ctrNum, counterName: ctr);
       }
     } else if (event == 'ticket.served' || event == 'ticket.completed') {
+      _stopCallingAnnounce();
       if (mounted) setState(() => _isCalling = false);
     }
 
@@ -191,26 +193,13 @@ class _DisplayScreenState extends State<DisplayScreen> {
       final state = await _api.getDisplayState(_token);
       if (!mounted || generation != _refreshGeneration) return;
 
-      final prevCalling = _displayCode;
       _applyState(state);
+      _syncCallingAnnounce(state);
 
       setState(() {
         _connected = true;
         _errorMessage = null;
       });
-
-      final calling = state.nowCalling;
-      if (calling != null &&
-          calling.ticketCode.isNotEmpty &&
-          calling.ticketCode != prevCalling &&
-          calling.ticketCode != _lastAnnouncedCode &&
-          (_config?.ttsEnabled ?? true)) {
-        _announceTicket(
-          calling.ticketCode,
-          counterNumber: AnnounceService.counterNumberFromName(calling.counterName),
-          counterName: calling.counterName,
-        );
-      }
     } catch (e, st) {
       debugPrint('qf_tv state refresh failed: $e\n$st');
       if (!mounted || generation != _refreshGeneration) return;
@@ -241,17 +230,33 @@ class _DisplayScreenState extends State<DisplayScreen> {
     _totalWaiting = state.totalWaiting;
   }
 
-  void _announceTicket(
+  void _startCallingAnnounce(
     String code, {
     int? counterNumber,
     String? counterName,
   }) {
-    if (code.isEmpty || code == _lastAnnouncedCode) return;
-    _lastAnnouncedCode = code;
-    _announce?.announceTicket(
+    if (code.isEmpty || !(_config?.ttsEnabled ?? true)) return;
+    _announce?.startCallingLoop(
       code,
       counterNumber: counterNumber,
       counterLabel: AnnounceService.counterPhrase(counterName),
+    );
+  }
+
+  void _stopCallingAnnounce() {
+    _announce?.stopCallingLoop();
+  }
+
+  void _syncCallingAnnounce(DisplayState state) {
+    final calling = state.nowCalling;
+    if (calling == null || calling.ticketCode.isEmpty) {
+      _stopCallingAnnounce();
+      return;
+    }
+    _startCallingAnnounce(
+      calling.ticketCode,
+      counterNumber: AnnounceService.counterNumberFromName(calling.counterName),
+      counterName: calling.counterName,
     );
   }
 
