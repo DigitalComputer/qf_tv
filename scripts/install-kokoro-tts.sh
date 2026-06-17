@@ -22,6 +22,23 @@ log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
+# kokoro-onnx 0.5.x requires Python >=3.10,<3.14 (Ubuntu 26.04 default may be 3.14+)
+_python_ok() {
+  local py="$1"
+  "$py" -c 'import sys; v=sys.version_info; raise SystemExit(0 if (3,10) <= (v.major,v.minor) < (3,14) else 1)' 2>/dev/null
+}
+
+find_python() {
+  local py
+  for py in python3.13 python3.12 python3.11 python3; do
+    if command -v "$py" &>/dev/null && _python_ok "$py"; then
+      echo "$py"
+      return 0
+    fi
+  done
+  return 1
+}
+
 [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
 
 log "System packages (Python, espeak-ng for Kokoro G2P, ALSA)"
@@ -83,8 +100,17 @@ if command -v aplay &>/dev/null; then
 fi
 
 log "Python venv + pip install (Kokoro ONNX model downloads on first speak)"
+PYTHON="$(find_python || true)"
+if [[ -z "${PYTHON}" ]]; then
+  log "Installing python3.12 (system python too new for kokoro-onnx; need >=3.10,<3.14)"
+  apt-get install -y -qq python3.12 python3.12-venv python3.12-dev
+  PYTHON=python3.12
+  _python_ok "$PYTHON" || die "python3.12 not usable after install"
+fi
+ok "Python: $("${PYTHON}" --version 2>&1 | awk '{print $1, $2}')"
+
 rm -rf "${INSTALL_DIR}/venv"
-python3 -m venv "${INSTALL_DIR}/venv"
+"${PYTHON}" -m venv "${INSTALL_DIR}/venv"
 "${INSTALL_DIR}/venv/bin/pip" install -q --upgrade pip
 "${INSTALL_DIR}/venv/bin/pip" install -q -r "${INSTALL_DIR}/requirements.txt"
 
