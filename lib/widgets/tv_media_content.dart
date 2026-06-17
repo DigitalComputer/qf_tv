@@ -10,8 +10,8 @@ import '../models/models.dart';
 
 /// Zone C media — parity with qf_screen ZoneC (image/video/youtube/iframe/logo).
 ///
-/// Linux: [webview_win_floating] is a native GTK overlay — defer load until
-/// WebViewWidget has Zone C bounds (two post-frame passes) so queue UI stays visible.
+/// Linux: [webview_win_floating] native GTK overlay — keep hidden until Zone C
+/// bounds are set, then load. Set `QF_TV_NO_WEBVIEW=1` for thumbnail-only fallback.
 class TvMediaContent extends StatefulWidget {
   const TvMediaContent({super.key, required this.item});
 
@@ -24,16 +24,23 @@ class TvMediaContent extends StatefulWidget {
 class _TvMediaContentState extends State<TvMediaContent> {
   static const _embedOrigin = 'https://queueflow.local';
 
+  /// Native overlay cannot clip reliably — opt out via env.
+  static bool get _linuxWebViewEnabled {
+    if (!Platform.isLinux) return true;
+    final flag = Platform.environment['QF_TV_NO_WEBVIEW'];
+    return flag != '1' && flag != 'true';
+  }
+
   VideoPlayerController? _videoCtrl;
   WebViewController? _webCtrl;
   bool _videoFailed = false;
   bool _webFailed = false;
   bool _webReady = false;
+  bool _webLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    // Defer init until Zone C has layout bounds (webview_win_floating native overlay).
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
 
@@ -45,6 +52,7 @@ class _TvMediaContentState extends State<TvMediaContent> {
       _videoFailed = false;
       _webFailed = false;
       _webReady = false;
+      _webLoaded = false;
       WidgetsBinding.instance.addPostFrameCallback((_) => _init());
     }
   }
@@ -58,9 +66,14 @@ class _TvMediaContentState extends State<TvMediaContent> {
       case 'video':
         await _initVideo(url);
       case 'youtube':
-        await _initYouTubeWebView(url);
       case 'iframe':
-        await _initIframeWebView(url);
+        if (_linuxWebViewEnabled) {
+          if (widget.item.kind == 'youtube') {
+            await _initYouTubeWebView(url);
+          } else {
+            await _initIframeWebView(url);
+          }
+        }
       default:
         break;
     }
@@ -80,7 +93,9 @@ class _TvMediaContentState extends State<TvMediaContent> {
       await ctrl.dispose();
       _videoCtrl = null;
       _videoFailed = true;
-      await _loadGenericWebView(_videoHtmlDataUrl(url));
+      if (_linuxWebViewEnabled) {
+        await _loadGenericWebView(_videoHtmlDataUrl(url));
+      }
       if (mounted) setState(() {});
     }
   }
@@ -95,9 +110,9 @@ class _TvMediaContentState extends State<TvMediaContent> {
 iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body>
 <iframe
-  src="https://www.youtube-nocookie.com/embed/$id?autoplay=1&mute=1&loop=1&playlist=$id&controls=0&playsinline=1&rel=0"
+  src="https://www.youtube-nocookie.com/embed/$id?autoplay=1&mute=1&loop=1&playlist=$id&controls=0&playsinline=1&rel=0&fs=0"
   referrerpolicy="strict-origin-when-cross-origin"
-  allow="autoplay; encrypted-media; fullscreen"
+  allow="autoplay; encrypted-media"
 ></iframe>
 </body></html>''';
     await _loadHtmlWebView(html);
@@ -114,7 +129,7 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body>
 <iframe src="$safe" referrerpolicy="strict-origin-when-cross-origin"
   sandbox="allow-scripts allow-same-origin allow-presentation"
-  allow="autoplay; encrypted-media; fullscreen"></iframe>
+  allow="autoplay; encrypted-media"></iframe>
 </body></html>''';
     await _loadHtmlWebView(html);
   }
@@ -133,21 +148,32 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
     });
   }
 
-  /// Mount [WebViewWidget] first so layout bounds reach native overlay, then load.
   Future<void> _prepareWebView() async {
     if (_webCtrl != null) return;
     final ctrl = _createWebController();
     _webCtrl = ctrl;
-    await _hideLinuxWebView(ctrl);
+    await _setLinuxWebViewVisible(ctrl, false);
     if (mounted) setState(() => _webReady = true);
   }
 
+  /// Hide overlay until Zone C layout bounds reach native plugin, then load.
   void _scheduleWebLoad(void Function() load) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void afterFrames(int remaining, void Function() action) {
+      if (remaining <= 0) {
+        action();
+        return;
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _webCtrl == null) return;
-        load();
+        if (!mounted) return;
+        afterFrames(remaining - 1, action);
       });
+    }
+
+    afterFrames(4, () async {
+      if (!mounted || _webCtrl == null || _webLoaded) return;
+      await _setLinuxWebViewVisible(_webCtrl!, true);
+      load();
+      _webLoaded = true;
     });
   }
 
@@ -162,7 +188,10 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
         platform.controller.setNavigationDelegate(
           WinNavigationDelegate(
             onFullScreenChanged: (isFullScreen) {
-              if (isFullScreen) platform.controller.setFullScreen(false);
+              if (isFullScreen) {
+                platform.controller.setFullScreen(false);
+                _setLinuxWebViewVisible(ctrl, true);
+              }
             },
             onWebResourceError: (_) {
               if (mounted) setState(() => _webFailed = true);
@@ -175,11 +204,11 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
     return ctrl;
   }
 
-  Future<void> _hideLinuxWebView(WebViewController ctrl) async {
+  Future<void> _setLinuxWebViewVisible(WebViewController ctrl, bool visible) async {
     if (!Platform.isLinux) return;
     final platform = ctrl.platform;
     if (platform is WindowsPlatformWebViewController) {
-      await platform.controller.setVisibility(false);
+      await platform.controller.setVisibility(visible);
     }
   }
 
@@ -190,6 +219,7 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
       final platform = _webCtrl!.platform;
       if (platform is WindowsPlatformWebViewController) {
         platform.controller.setVisibility(false);
+        platform.controller.dispose();
       }
     }
     _webCtrl = null;
@@ -199,6 +229,19 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
   void dispose() {
     _disposePlayers();
     super.dispose();
+  }
+
+  Widget _linuxWebViewHost() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 8 || constraints.maxHeight < 8) {
+          return const ColoredBox(color: Colors.black);
+        }
+        return SizedBox.expand(
+          child: WebViewWidget(controller: _webCtrl!),
+        );
+      },
+    );
   }
 
   @override
@@ -240,18 +283,14 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
             ),
           );
         }
-        if (_webFailed) return _mediaFallback(item);
-        if (_webCtrl != null && _webReady) {
-          return WebViewWidget(controller: _webCtrl!);
-        }
+        if (!_linuxWebViewEnabled || _webFailed) return _mediaFallback(item);
+        if (_webCtrl != null && _webReady) return _linuxWebViewHost();
         return _mediaFallback(item);
       case 'youtube':
       case 'iframe':
-        if (_webFailed) return _mediaFallback(item);
-        if (_webCtrl != null && _webReady) {
-          return WebViewWidget(controller: _webCtrl!);
-        }
-        return const ColoredBox(color: Colors.black);
+        if (!_linuxWebViewEnabled || _webFailed) return _mediaFallback(item);
+        if (_webCtrl != null && _webReady) return _linuxWebViewHost();
+        return _mediaFallback(item);
       default:
         return Center(
           child: Text(
@@ -279,10 +318,25 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
           Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text(
-                item.title ?? 'Vídeo indisponível',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.play_circle_outline, color: Colors.white54, size: 64),
+                  const SizedBox(height: 12),
+                  Text(
+                    item.title ?? 'Vídeo',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 20),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    url,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white38, fontSize: 14),
+                  ),
+                ],
               ),
             ),
           ),
@@ -305,7 +359,6 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
     return 'https://img.youtube.com/vi/${_youtubeId(url)}/hqdefault.jpg';
   }
 
-  /// HLS / direct video fallback via WebKit (same approach as qf_screen Hls.js).
   static String _videoHtmlDataUrl(String url) {
     final safe = url.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
     final isHls = url.contains('.m3u8');

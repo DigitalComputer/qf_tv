@@ -417,24 +417,89 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
 
 Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. API returns raw `url` from `tv_media_items` table — no transform.
 
-### Black screen — queue UI hidden behind WebView (v1.0.14 regression, fixed v1.0.15)
+### Black screen — queue UI hidden behind WebView (v1.0.14–v1.0.19, mitigated v1.0.20)
 
 **Symptoms:** Zone C shows YouTube/video but zones A/B/D are black — queue ticket number, waiting list, ticker invisible.
 
-**Root cause:** `webview_win_floating` renders a **native WebKitGTK overlay above the entire Flutter window**. Even with deferred init, the overlay cannot be clipped to Zone C bounds on Linux — Flutter widgets underneath stay hidden.
+**Root cause:** `webview_win_floating` renders a **native WebKitGTK overlay above the entire Flutter window**. Loading before Zone C bounds are set, or YouTube fullscreen, can cover the whole window.
+
+**App fix (v1.0.20):** Keep overlay hidden until 4 layout frames + `LayoutBuilder` confirms Zone C size; YouTube embed uses `fs=0` and no `fullscreen` allow; show overlay only when loading. If queue UI still black, force thumbnail mode:
+
+```bash
+# In /opt/qf-tv/run-qf-tv.sh (before exec qf_tv):
+export QF_TV_NO_WEBVIEW=1
+```
+
+Zone C then shows YouTube thumbnail + title + URL; queue zones A/B/D stay visible.
 
 **App fix (v1.0.16):** Re-enable bounded WebView on Linux — mount `WebViewWidget` in Zone C first, wait two frames for `updateBounds`, then load YouTube/iframe/HLS with `autoplay=1`. Direct mp4 autoplays via `video_player`. Queue zones stay visible.
 
 **App fix (v1.0.15):** On Linux, **no WebView** for YouTube/iframe/HLS — Zone C shows YouTube thumbnail + title (or `video_player` for direct mp4 URLs). Queue UI always visible.
 
-**Install:**
+**Install v1.0.20:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
-sudo env QF_TV_VERSION=v1.0.15 \
+sudo env QF_TV_VERSION=v1.0.20 \
      QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
      bash /tmp/qf-tv-update.sh
 ```
+
+### Kokoro TTS — natural voice on TV box (v1.0.20)
+
+**Architecture:** TTS runs **on the TV box** (`192.168.30.60`), not on the API server (`192.168.30.168`). qf_tv POSTs ticket text to `http://127.0.0.1:5050/speak`; Kokoro plays on the analog jack (ALC269/PCH). Laravel `/display/announce` (edge-tts MP3) remains for **qf_screen** browsers; TV uses local Kokoro first, then API MP3, then espeak.
+
+**Install on TV box:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-kokoro-tts.sh -o /tmp/install-kokoro-tts.sh
+sudo bash /tmp/install-kokoro-tts.sh
+```
+
+Or with full TV setup: `INSTALL_KOKORO=1` is default in `setup-tv-box.sh`; for update-only: `sudo INSTALL_KOKORO=1 bash install-qf-tv-update.sh`.
+
+**Verify:**
+
+```bash
+systemctl status queueflow-tts
+curl -s http://127.0.0.1:5050/health
+curl -X POST http://127.0.0.1:5050/speak \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Atenção. Senha um dois três."}'
+```
+
+**Config** (`/opt/qf-kokoro-tts/.env`):
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `TTS_VOICE` | `pf_dora` | pt-BR female |
+| `TTS_LANG` | `pt-br` | Kokoro lang code `p` |
+| `AUDIO_DEVICE` | `plughw:CARD=PCH,DEV=0` | ALSA analog jack |
+| `TTS_PORT` | `5050` | Local only |
+
+**qf_tv env** (set in `/opt/qf-tv/run-qf-tv.sh`):
+
+```bash
+export KOKORO_TTS_URL=http://127.0.0.1:5050
+export QF_TV_KOKORO=1   # set 0 to disable Kokoro, use API MP3 only
+```
+
+**Troubleshooting:**
+
+```bash
+journalctl -u queueflow-tts -f          # first speak downloads Kokoro model (~100MB)
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$(id -u kiosk) aplay -l
+# sounddevice fails → tts_engine falls back to aplay automatically
+```
+
+**Disable Kokoro** (use API edge-tts MP3 from Docker host):
+
+```bash
+export QF_TV_KOKORO=0
+```
+
+API server still needs `edge-tts` in `qf-api` container — see “Robotic voice” below.
+
 
 ### Black screen + YouTube error 153 (v1.0.13 regression, fixed v1.0.14)
 
@@ -493,6 +558,21 @@ sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID paplay /usr/share/sounds/alsa/Fron
 ```
 
 After `install-qf-tv-update.sh` with v1.0.17: reboot or `systemctl restart lightdm`, trigger a queue call — announce MP3 should play on 3.5mm jack.
+
+### Robotic voice — API still serving old TTS cache
+
+qf_tv v1.0.18+ fetches neural MP3 from `GET /api/v1/display/announce` (`pt-PT-RaquelNeural` via `edge-tts`). Espeak fallback = API fetch/playback failed **or** cached MP3 from old voice.
+
+On the **API Docker host** (container `qf-api`):
+
+```bash
+docker exec qf-api rm -rf /var/www/storage/app/display-tts/*
+docker exec qf-api php artisan config:clear
+docker exec qf-api which edge-tts
+docker exec qf-api php artisan tinker --execute="echo config('queueflow.display.tts_voice');"
+```
+
+Set `DISPLAY_TTS_VOICE=pt-PT-RaquelNeural` in `laravel-api-kit/.env` (or orchestrator env), redeploy API if needed, then clear cache again.
 
 ### No soundcards at OS level (`aplay -l` empty)
 

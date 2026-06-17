@@ -1,0 +1,18 @@
+[Unit]
+Description=QueueFlow Kokoro TTS (local TV announce)
+After=sound.target pipewire-pulse.service pulseaudio.service
+Wants=sound.target
+
+[Service]
+Type=simple
+User=kiosk
+Group=kiosk
+WorkingDirectory=/opt/qf-kokoro-tts
+EnvironmentFile=-/opt/qf-kokoro-tts/.env
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/opt/qf-kokoro-tts/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -179,5 +179,17 @@ chown -R "${KIOSK_USER}:${KIOSK_USER}" "$INSTALL_DIR" "$CONFIG_DIR" 2>/dev/null 
 
 rm -rf "${KIOSK_HOME}/.local/share/com.example.qf_tv" 2>/dev/null || true
 
+if [[ "${INSTALL_KOKORO:-0}" == "1" ]]; then
+  log "Install Kokoro TTS (INSTALL_KOKORO=1)"
+  if [[ -f "${SCRIPT_DIR}/install-kokoro-tts.sh" ]]; then
+    bash "${SCRIPT_DIR}/install-kokoro-tts.sh" || warn "Kokoro install failed"
+  else
+    KOKORO_TMP="$(mktemp)"
+    curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install-kokoro-tts.sh" -o "$KOKORO_TMP"
+    bash "$KOKORO_TMP" || warn "Kokoro install failed"
+    rm -f "$KOKORO_TMP"
+  fi
+fi
+
 systemctl restart lightdm 2>/dev/null || true
 ok "Installed ${QF_TV_VERSION} — config: $(cat "$CONFIG_FILE" 2>/dev/null || echo n/a)"

@@ -305,6 +305,16 @@ systemctl disable "${SERVICE_NAME}" >/dev/null 2>&1 || true
 systemctl stop "${SERVICE_NAME}" >/dev/null 2>&1 || true
 ok "qf_tv will start via openbox after LightDM (not systemd before :0)"
 
+# ── 7. Optional Kokoro TTS (local neural voice on TV analog jack) ─────────
+if [[ "${INSTALL_KOKORO:-1}" == "1" ]]; then
+  log "Installing Kokoro TTS (optional — set INSTALL_KOKORO=0 to skip)"
+  if bash "$(dirname "$0")/install-kokoro-tts.sh"; then
+    ok "Kokoro TTS installed (http://127.0.0.1:5050)"
+  else
+    printf '\033[1;33m!\033[0m Kokoro install failed — qf_tv falls back to API MP3 / espeak\n'
+  fi
+fi
+
 # ── Done ────────────────────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════"

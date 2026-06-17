@@ -3,20 +3,25 @@ import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
+import 'kokoro_service.dart';
 import 'linux_audio.dart';
 import 'services.dart';
+import 'tts_formatter.dart';
 
-/// Portuguese ticket announcements — API neural MP3 (same as qf_screen) + espeak fallback.
+/// Portuguese ticket announcements — Kokoro (TV-local) → API MP3 → espeak fallback.
 class AnnounceService {
   AnnounceService({required ApiService api, required String token})
       : _api = api,
-        _token = token;
+        _token = token,
+        _kokoro = KokoroService();
 
   final ApiService _api;
   final String _token;
+  final KokoroService _kokoro;
   final AudioPlayer _player = AudioPlayer();
   bool _ready = false;
   bool _speaking = false;
+  bool? _kokoroReachable;
   final List<Future<void> Function()> _queue = [];
 
   /// Gap between announce plays while call active (matches qf_screen poll interval).
@@ -28,55 +33,6 @@ class AnnounceService {
   String? _callingLoopCounterLabel;
   int _callingLoopGeneration = 0;
 
-  static const _digitPt = {
-    '0': 'zero',
-    '1': 'um',
-    '2': 'dois',
-    '3': 'três',
-    '4': 'quatro',
-    '5': 'cinco',
-    '6': 'seis',
-    '7': 'sete',
-    '8': 'oito',
-    '9': 'nove',
-  };
-
-  static const _tensPt = [
-    '',
-    '',
-    'vinte',
-    'trinta',
-    'quarenta',
-    'cinquenta',
-    'sessenta',
-    'setenta',
-    'oitenta',
-    'noventa',
-  ];
-
-  static const _onesPt = [
-    'zero',
-    'um',
-    'dois',
-    'três',
-    'quatro',
-    'cinco',
-    'seis',
-    'sete',
-    'oito',
-    'nove',
-    'dez',
-    'onze',
-    'doze',
-    'treze',
-    'catorze',
-    'quinze',
-    'dezasseis',
-    'dezassete',
-    'dezoito',
-    'dezanove',
-  ];
-
   Future<void> init() async {
     if (_ready) return;
     await _player.setReleaseMode(ReleaseMode.stop);
@@ -84,6 +40,10 @@ class AnnounceService {
       final which = await Process.run('which', ['espeak-ng']);
       if (which.exitCode != 0) {
         debugPrint('qf_tv TTS: espeak-ng not installed (offline fallback) — apt install espeak-ng');
+      }
+      if (KokoroService.enabledOnLinux()) {
+        _kokoroReachable = await _kokoro.isReachable();
+        debugPrint('qf_tv Kokoro TTS: ${_kokoroReachable == true ? KokoroService.kokoroTtsUrl() : 'unreachable'}');
       }
     }
     _ready = true;
@@ -95,7 +55,7 @@ class AnnounceService {
     return bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0; // MPEG sync
   }
 
-  /// Repeat neural/espeak announce every [repeatPause] until [stopCallingLoop].
+  /// Repeat announce every [repeatPause] until [stopCallingLoop].
   Future<void> startCallingLoop(
     String displayCode, {
     int? counterNumber,
@@ -183,6 +143,16 @@ class AnnounceService {
     int? counterNumber,
     String? counterLabel,
   }) async {
+    // Linux TV box: local Kokoro TTS (natural pt-BR on analog jack).
+    if (Platform.isLinux && KokoroService.enabledOnLinux()) {
+      _kokoroReachable ??= await _kokoro.isReachable();
+      if (_kokoroReachable == true) {
+        final text = TtsFormatter.ticketAnnouncement(code, counterNumber: counterNumber);
+        if (await _kokoro.speak(text)) return;
+        debugPrint('qf_tv Kokoro speak failed — trying API MP3');
+      }
+    }
+
     try {
       final bytes = await _api.fetchAnnounceAudio(_token, code, counter: counterNumber);
       if (!_isValidMp3(bytes)) {
@@ -198,7 +168,6 @@ class AnnounceService {
   }
 
   Future<bool> _playBytes(List<int> bytes) async {
-    // Linux kiosk: paplay/mpg123 via launcher env — audioplayers/GStreamer often silent.
     if (Platform.isLinux) {
       final tmp = File(
         '${Directory.systemTemp.path}/qf_tv_announce_${DateTime.now().millisecondsSinceEpoch}.mp3',
@@ -240,8 +209,8 @@ class AnnounceService {
 
   Future<void> _speakTicketEspeak(String code, {String? counterLabel}) async {
     await _speakEspeak('Atenção.');
-    await _speakEspeak('Senha. ${_spellCode(code)}.');
-    await _speakEspeak(_spellCode(code));
+    await _speakEspeak('Senha. ${TtsFormatter.spellCode(code)}.');
+    await _speakEspeak(TtsFormatter.spellCode(code));
     if (counterLabel != null && counterLabel.isNotEmpty) {
       await _speakEspeak('Por favor, dirija-se ao $counterLabel.');
     }
@@ -250,10 +219,6 @@ class AnnounceService {
   Future<void> _speakEspeak(String text) async {
     if (!Platform.isLinux) return;
     await LinuxAudio.speakEspeak(text);
-  }
-
-  String _spellCode(String code) {
-    return code.split('').map((c) => _digitPt[c] ?? c).join('  ');
   }
 
   static int? counterNumberFromPayload(Map<String, dynamic>? payload) {
@@ -276,17 +241,9 @@ class AnnounceService {
     }
     final numStr = counterNumberFromName(counterName);
     if (numStr != null) {
-      return 'balcão número ${_numberPt(numStr)}';
+      return 'balcão número ${TtsFormatter.numberPt(numStr)}';
     }
     return counterName;
-  }
-
-  static String _numberPt(int n) {
-    if (n < 20) return _onesPt[n];
-    final t = n ~/ 10;
-    final u = n % 10;
-    if (u == 0) return _tensPt[t];
-    return '${_tensPt[t]} e ${_onesPt[u]}';
   }
 
   Future<void> stop() async {
@@ -295,6 +252,9 @@ class AnnounceService {
     _queue.clear();
     await _player.stop();
     if (Platform.isLinux) {
+      if (KokoroService.enabledOnLinux()) {
+        await _kokoro.stop();
+      }
       await Process.run('pkill', ['-x', 'espeak-ng']);
     }
     _speaking = false;

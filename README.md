@@ -18,6 +18,16 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.20
+
+- **Kokoro TTS** on TV box (`127.0.0.1:5050`) — natural pt-BR (`pf_dora`) for ticket announce; repeat loop until dismiss; API MP3 + espeak fallback
+- **WebView overlay fix:** hide native overlay until Zone C bounds set (4 frames); `fs=0` on YouTube embed; `QF_TV_NO_WEBVIEW=1` → thumbnail + URL fallback (queue UI always visible)
+- Install: `scripts/install-kokoro-tts.sh` (optional in `setup-tv-box.sh`)
+
+## v1.0.19
+
+- Repeat announce every 10s until call dismissed (parity with qf_screen)
+
 ## v1.0.18
 
 - Queue announce: prefer API neural pt-PT MP3 (`edge-tts` / `pt-PT-RaquelNeural`) via `paplay`; validate MP3 + fallback to espeak only when API or playback fails
@@ -87,6 +97,14 @@ Unlock: Ctrl+P then Alt+P (within 2s) → picker
 ## API (laravel-api-kit)
 
 Host: `{tenant}.queueflow.ao` — set at install via `QF_API_HOST` → `/etc/qf-tv/config.json`
+
+**API server (Docker, container `qf-api`)** — neural announce uses `edge-tts` + cached MP3. After voice/env change:
+
+```bash
+docker exec qf-api rm -rf /var/www/storage/app/display-tts/*
+docker exec qf-api php artisan config:clear
+docker exec qf-api which edge-tts
+```
 
 | Method | Path |
 |--------|------|
