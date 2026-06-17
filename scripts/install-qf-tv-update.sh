@@ -119,7 +119,7 @@ fi
 
 log "TTS + audio (espeak-ng + GStreamer for API announce MP3)"
 apt-get install -y -qq espeak-ng 2>/dev/null || apt-get install -y -qq espeak 2>/dev/null || true
-apt-get install -y -qq alsa-utils libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good 2>/dev/null || true
+apt-get install -y -qq alsa-utils libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good 2>/dev/null || true
 
 if [[ -n "$QF_API_HOST" ]]; then
   host="$(ensure_api_port "${QF_API_HOST%/}")"
