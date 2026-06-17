@@ -114,26 +114,27 @@ class AnnounceService {
   }
 
   Future<void> _playBytes(List<int> bytes) async {
-    await _player.stop();
-    try {
-      await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
-      await _player.onPlayerComplete.first;
-      return;
-    } catch (e) {
-      debugPrint('qf_tv audioplayers failed, system fallback: $e');
-    }
-
+    // Linux kiosk: paplay/mpg123 via launcher env — audioplayers/GStreamer often silent.
     if (Platform.isLinux) {
       final tmp = File(
         '${Directory.systemTemp.path}/qf_tv_announce_${DateTime.now().millisecondsSinceEpoch}.mp3',
       );
       try {
         await tmp.writeAsBytes(bytes);
-        final ok = await LinuxAudio.playMp3File(tmp.path);
-        if (!ok) throw StateError('no Linux MP3 player');
+        if (await LinuxAudio.playMp3File(tmp.path)) return;
+        debugPrint('qf_tv system MP3 failed, trying audioplayers');
       } finally {
         if (await tmp.exists()) await tmp.delete();
       }
+    }
+
+    await _player.stop();
+    try {
+      await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
+      await _player.onPlayerComplete.first;
+    } catch (e) {
+      debugPrint('qf_tv audioplayers failed: $e');
+      if (!Platform.isLinux) rethrow;
     }
   }
 

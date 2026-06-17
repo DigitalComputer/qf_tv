@@ -458,17 +458,18 @@ sudo env QF_TV_VERSION=v1.0.15 \
 
 After install: queue zones A/B/D visible again; Zone C shows YouTube thumbnail + title on Linux (no embedded player until proper GTK embedding exists).
 
-### No sound — card present but TTS/announce silent (ALC269 / Intel PCH, fixed v1.0.15)
+### No sound — card present but TTS/announce silent (ALC269 / Intel PCH, fixed v1.0.17)
 
-**Symptoms:** `/proc/asound/cards` shows `HDA Intel PCH` / `ALC269VC`; bare SSH `espeak-ng` → `ALSA cannot find card '0'`; `pactl` → Connection refused without `XDG_RUNTIME_DIR`.
+**Symptoms:** `/proc/asound/cards` shows `HDA Intel PCH` / `ALC269VC`; bare SSH `espeak-ng` → `ALSA cannot find card '0'`; `pactl` → Connection refused without `XDG_RUNTIME_DIR`; v1.0.15–v1.0.16 still silent.
 
 **Root causes:**
 
-1. **PulseAudio not in SSH session** — audio daemon runs under kiosk GUI login, not root SSH.
-2. **Wrong espeak device** — v1.0.14 set `QF_ESPEAK_DEVICE=0` (card index); espeak `-a` expects a device **name**, not card number.
-3. **ALSA default unset** — apps need `~/.asoundrc` routing to PulseAudio.
+1. **Openbox never starts PulseAudio** — unlike GNOME, openbox autostart does not launch the audio server; v1.0.15 only tried `pulseaudio --start` once with no wait/retry.
+2. **audioplayers/GStreamer silent** — announce MP3 played via GStreamer with no sink env; system `paplay` fallback only ran on exception.
+3. **Wrong espeak device (v1.0.14)** — `QF_ESPEAK_DEVICE=0` passed card index to `-a`.
+4. **ALSA default unset** — apps need `~/.asoundrc` routing to PulseAudio.
 
-**Fix (v1.0.15):** install script writes kiosk `~/.asoundrc` + `/etc/asound.conf.d/qf-tv.conf`; launcher sets `XDG_RUNTIME_DIR`, picks analog/PCH sink, unmutes; espeak uses ALSA `default` → pulse.
+**Fix (v1.0.17):** launcher creates `XDG_RUNTIME_DIR`, starts PulseAudio/PipeWire with retry, sets `PULSE_SINK` + `GST_AUDIO_SINK` for video; announce uses `paplay`/`pw-play`/`mpg123` first on Linux; `~/.asoundrc` for kiosk + `qf_tv` users.
 
 **Verify in kiosk session (not bare SSH):**
 
@@ -491,7 +492,7 @@ sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID paplay /usr/share/sounds/alsa/Fron
   || speaker-test -D plughw:0,0 -c 2 -t wav -l 1
 ```
 
-After `install-qf-tv-update.sh` with v1.0.15: reboot or `systemctl restart lightdm`, trigger a queue call — announce MP3 should play on 3.5mm jack.
+After `install-qf-tv-update.sh` with v1.0.17: reboot or `systemctl restart lightdm`, trigger a queue call — announce MP3 should play on 3.5mm jack.
 
 ### No soundcards at OS level (`aplay -l` empty)
 

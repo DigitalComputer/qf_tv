@@ -8,16 +8,33 @@ class LinuxAudio {
     if (!Platform.isLinux) return false;
 
     final env = _audioEnv();
+    final sink = Platform.environment['QF_PULSE_SINK'];
+    final alsa = Platform.environment['QF_ALSA_DEVICE'];
 
-    for (final cmd in [
+    final attempts = <List<String>>[];
+    if (sink != null && sink.isNotEmpty) {
+      attempts.add(['paplay', '--device=$sink', path]);
+    }
+    attempts.addAll([
       ['paplay', path],
-      ['mpg123', '-q', path],
-    ]) {
-      final which = await Process.run('which', [cmd[0]]);
+      ['pw-play', path],
+      ['mpg123', '-q', '-o', 'pulse', path],
+      ['mpg123', '-q', '-a', env['AUDIODEV'] ?? 'default', path],
+    ]);
+    if (alsa != null && alsa.isNotEmpty) {
+      attempts.add(['mpg123', '-q', '-a', alsa, path]);
+    }
+
+    for (final cmd in attempts) {
+      final bin = cmd[0];
+      final which = await Process.run('which', [bin]);
       if (which.exitCode != 0) continue;
-      final r = await Process.run(cmd[0], cmd.sublist(1), environment: env);
-      if (r.exitCode == 0) return true;
-      debugPrint('qf_tv ${cmd[0]} failed (${r.exitCode}): ${r.stderr}');
+      final r = await Process.run(bin, cmd.sublist(1), environment: env);
+      if (r.exitCode == 0) {
+        debugPrint('qf_tv audio: $bin ok');
+        return true;
+      }
+      debugPrint('qf_tv $bin failed (${r.exitCode}): ${r.stderr}');
     }
     return false;
   }
@@ -25,15 +42,31 @@ class LinuxAudio {
   static Future<void> speakEspeak(String text) async {
     if (!Platform.isLinux) return;
 
+    final env = _audioEnv();
+    final alsa = Platform.environment['QF_ALSA_DEVICE'];
+
     // Route via ALSA default (kiosk ~/.asoundrc → pulse) — do NOT pass -a with card index.
-    final r = await Process.run(
+    var r = await Process.run(
       'espeak-ng',
       ['-v', 'pt', '-s', '120', text],
-      environment: _audioEnv(),
+      environment: env,
       runInShell: false,
     );
-    if (r.exitCode != 0) {
-      debugPrint('qf_tv espeak-ng failed (${r.exitCode}): ${r.stderr}');
+    if (r.exitCode == 0) return;
+
+    debugPrint('qf_tv espeak-ng default failed (${r.exitCode}): ${r.stderr}');
+
+    // Direct ALSA hardware fallback when PulseAudio is down.
+    if (alsa != null && alsa.isNotEmpty) {
+      r = await Process.run(
+        'espeak-ng',
+        ['-v', 'pt', '-s', '120', '-a', alsa, text],
+        environment: env,
+        runInShell: false,
+      );
+      if (r.exitCode != 0) {
+        debugPrint('qf_tv espeak-ng alsa failed (${r.exitCode}): ${r.stderr}');
+      }
     }
   }
 

@@ -18,6 +18,10 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.17
+
+- Fix silent audio on Intel ALC269/PCH (v1.0.15/16 regression): launcher starts PulseAudio/PipeWire with retry, exports `PULSE_SINK` + `GST_AUDIO_SINK`; announce uses `paplay`/`pw-play`/`mpg123` before audioplayers; `~/.asoundrc` for kiosk + `qf_tv` users
+
 ## v1.0.16
 
 - Zone C autoplay on Linux: re-enable bounded WebView (mount widget → set bounds → load) for YouTube/iframe/HLS; direct mp4 via `video_player` autoplay + loop

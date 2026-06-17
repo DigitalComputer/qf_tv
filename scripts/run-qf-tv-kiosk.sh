@@ -11,12 +11,48 @@ export GDK_SYNCHRONIZE="${GDK_SYNCHRONIZE:-0}"
 configure_audio() {
   # PulseAudio/PipeWire — must run in kiosk graphical session (openbox autostart), not bare SSH.
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+  start_audio_server() {
+    if command -v pactl &>/dev/null && pactl info &>/dev/null 2>&1; then
+      return 0
+    fi
+    if command -v pulseaudio &>/dev/null; then
+      pulseaudio --start --exit-idle-time=-1 --daemonize 2>/dev/null || true
+    fi
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 0.3
+      if pactl info &>/dev/null 2>&1; then
+        return 0
+      fi
+    done
+    # Ubuntu 24.04+ may ship PipeWire without pulseaudio user session.
+    if command -v pipewire &>/dev/null; then
+      pipewire &>/dev/null &
+      sleep 1
+      if command -v wireplumber &>/dev/null; then
+        wireplumber &>/dev/null &
+        sleep 0.5
+      fi
+      if command -v pipewire-pulse &>/dev/null; then
+        pipewire-pulse &>/dev/null &
+        sleep 1
+      fi
+    fi
+    for i in 1 2 3 4 5; do
+      sleep 0.3
+      if pactl info &>/dev/null 2>&1; then
+        return 0
+      fi
+    done
+    return 1
+  }
 
   if command -v pactl &>/dev/null; then
-    if ! pactl info &>/dev/null 2>&1; then
-      pulseaudio --start --daemonize 2>/dev/null || true
-      sleep 1
-    fi
+    start_audio_server || echo "qf_tv: audio server not ready — ALSA fallback only" >&2
+
     local sink=""
     sink="$(pactl list short sinks 2>/dev/null \
       | grep -iE 'analog|headphone|hp|es8388|rk817|rk809|codec|pch|alc|hda|intel' \
@@ -29,6 +65,10 @@ configure_audio() {
       pactl set-sink-mute "$sink" 0 2>/dev/null || true
       pactl set-sink-volume "$sink" 100% 2>/dev/null || true
       export QF_PULSE_SINK="$sink"
+      export PULSE_SINK="$sink"
+      export GST_AUDIO_SINK="pulsesink device=${sink}"
+    else
+      export GST_AUDIO_SINK="${GST_AUDIO_SINK:-pulsesink}"
     fi
   fi
 
@@ -44,6 +84,7 @@ configure_audio() {
   fi
 
   export AUDIODEV="${QF_ALSA_DEVICE:-default}"
+  export PULSE_PROP="${PULSE_PROP:-media.role=music}"
 }
 
 configure_audio

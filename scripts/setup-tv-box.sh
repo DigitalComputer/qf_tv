@@ -129,7 +129,7 @@ apt-get install -y -qq \
   curl jq ca-certificates \
   xorg xserver-xorg-video-all x11-xserver-utils \
   openbox lightdm unclutter espeak-ng \
-  alsa-utils pulseaudio pulseaudio-utils mpg123 \
+  alsa-utils pulseaudio pulseaudio-utils pipewire pipewire-pulse wireplumber mpg123 \
   dbus-x11 \
   libgtk-3-0 libblkid1 liblzma5 libstdc++6 libglu1-mesa \
   libgl1 libegl1 libgles2 libgl1-mesa-dri \
@@ -161,7 +161,7 @@ KIOSK_HOME="$(eval echo "~$KIOSK_USER")"
 log "Kiosk audio (PulseAudio + ALSA defaults for analog jack)"
 # shellcheck source=lib/tv-audio-setup.sh
 source "$(dirname "$0")/lib/tv-audio-setup.sh"
-install_kiosk_asoundrc "$KIOSK_USER"
+install_tv_box_asoundrc "$KIOSK_USER"
 install_system_asound_fallback
 
 # ── 3. LightDM auto-login + openbox ─────────────────────────────────────────

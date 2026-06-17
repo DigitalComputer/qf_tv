@@ -125,7 +125,7 @@ fi
 log "TTS + audio + video (espeak-ng, GStreamer, WebKitGTK for YouTube/HLS)"
 apt-get install -y -qq espeak-ng 2>/dev/null || apt-get install -y -qq espeak 2>/dev/null || true
 apt-get install -y -qq \
-  alsa-utils pulseaudio pulseaudio-utils mpg123 \
+  alsa-utils pulseaudio pulseaudio-utils pipewire pipewire-pulse wireplumber mpg123 \
   libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-plugins-ugly \
@@ -166,7 +166,7 @@ curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/lib/tv
 if [[ -f "$TV_AUDIO" ]]; then
   # shellcheck source=/dev/null
   source "$TV_AUDIO"
-  install_kiosk_asoundrc "$KIOSK_USER"
+  install_tv_box_asoundrc "$KIOSK_USER"
   install_system_asound_fallback
   rm -f "$TV_AUDIO"
 fi
