@@ -37,18 +37,30 @@ log "Install → ${INSTALL_DIR}"
 mkdir -p "$INSTALL_DIR"
 
 if [[ -d "${REPO_ROOT}/services/kokoro-tts" ]]; then
-  cp -a "${REPO_ROOT}/services/kokoro-tts/"* "$INSTALL_DIR/"
+  # Trailing /. copies dotfiles (.env.example); glob * skips them.
+  cp -a "${REPO_ROOT}/services/kokoro-tts/." "$INSTALL_DIR/"
 else
   TMP="$(mktemp -d)"
   curl -fsSL "https://github.com/${GITHUB_REPO}/archive/refs/heads/main.tar.gz" -o "${TMP}/repo.tar.gz"
   tar xzf "${TMP}/repo.tar.gz" -C "$TMP"
-  cp -a "${TMP}"/*/services/kokoro-tts/* "$INSTALL_DIR/"
+  cp -a "${TMP}"/*/services/kokoro-tts/. "$INSTALL_DIR/"
   rm -rf "$TMP"
 fi
 
 if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
-  cp "${INSTALL_DIR}/.env.example" "${INSTALL_DIR}/.env"
-  ok "Created ${INSTALL_DIR}/.env from example"
+  if [[ -f "${INSTALL_DIR}/.env.example" ]]; then
+    cp "${INSTALL_DIR}/.env.example" "${INSTALL_DIR}/.env"
+  else
+    cat >"${INSTALL_DIR}/.env" <<'EOF'
+TTS_HOST=127.0.0.1
+TTS_PORT=5050
+TTS_VOICE=pf_dora
+TTS_LANG=pt-br
+TTS_SPEED=1.0
+AUDIO_DEVICE=default
+EOF
+  fi
+  ok "Created ${INSTALL_DIR}/.env"
 fi
 
 # Detect analog jack (ALC269/PCH or rk3568 ES8388)
