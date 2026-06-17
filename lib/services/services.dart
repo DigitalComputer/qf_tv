@@ -422,7 +422,17 @@ class ApiService {
       throw HttpException('announce HTTP ${r.statusCode}');
     }
 
-    return r.bodyBytes;
+    final bytes = r.bodyBytes;
+    if (bytes.length < 128) {
+      throw HttpException('announce empty response (${bytes.length} bytes)');
+    }
+
+    final type = r.headers['content-type']?.toLowerCase() ?? '';
+    if (type.isNotEmpty && !type.contains('audio') && !type.contains('mpeg')) {
+      throw HttpException('announce unexpected content-type: $type');
+    }
+
+    return bytes;
   }
 
   Future<DisplayTemplate> getTemplate(String templateId) async {

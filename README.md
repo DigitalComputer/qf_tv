@@ -18,6 +18,11 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.18
+
+- Queue announce: prefer API neural pt-PT MP3 (`edge-tts` / `pt-PT-RaquelNeural`) via `paplay`; validate MP3 + fallback to espeak only when API or playback fails
+- espeak fallback: explicit `pt-pt` voice, WAV → `paplay` (same `PULSE_SINK` route as announce MP3)
+
 ## v1.0.17
 
 - Fix silent audio on Intel ALC269/PCH (v1.0.15/16 regression): launcher starts PulseAudio/PipeWire with retry, exports `PULSE_SINK` + `GST_AUDIO_SINK`; announce uses `paplay`/`pw-play`/`mpg123` before audioplayers; `~/.asoundrc` for kiosk + `qf_tv` users

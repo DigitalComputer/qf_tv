@@ -74,10 +74,16 @@ class AnnounceService {
     if (Platform.isLinux) {
       final which = await Process.run('which', ['espeak-ng']);
       if (which.exitCode != 0) {
-        debugPrint('qf_tv TTS: espeak-ng not installed — apt install espeak-ng');
+        debugPrint('qf_tv TTS: espeak-ng not installed (offline fallback) — apt install espeak-ng');
       }
     }
     _ready = true;
+  }
+
+  static bool _isValidMp3(List<int> bytes) {
+    if (bytes.length < 128) return false;
+    if (bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) return true; // ID3
+    return bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0; // MPEG sync
   }
 
   Future<void> announceTicket(
@@ -104,16 +110,19 @@ class AnnounceService {
   }) async {
     try {
       final bytes = await _api.fetchAnnounceAudio(_token, code, counter: counterNumber);
-      await _playBytes(bytes);
-      return;
+      if (!_isValidMp3(bytes)) {
+        throw FormatException('announce response not MP3 (${bytes.length} bytes)');
+      }
+      if (await _playBytes(bytes)) return;
+      debugPrint('qf_tv neural MP3 playback failed — espeak fallback');
     } catch (e) {
-      debugPrint('qf_tv API announce failed, espeak fallback: $e');
+      debugPrint('qf_tv API announce failed — espeak fallback: $e');
     }
 
     await _speakTicketEspeak(code, counterLabel: counterLabel);
   }
 
-  Future<void> _playBytes(List<int> bytes) async {
+  Future<bool> _playBytes(List<int> bytes) async {
     // Linux kiosk: paplay/mpg123 via launcher env — audioplayers/GStreamer often silent.
     if (Platform.isLinux) {
       final tmp = File(
@@ -121,7 +130,7 @@ class AnnounceService {
       );
       try {
         await tmp.writeAsBytes(bytes);
-        if (await LinuxAudio.playMp3File(tmp.path)) return;
+        if (await LinuxAudio.playMp3File(tmp.path)) return true;
         debugPrint('qf_tv system MP3 failed, trying audioplayers');
       } finally {
         if (await tmp.exists()) await tmp.delete();
@@ -132,9 +141,11 @@ class AnnounceService {
     try {
       await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
       await _player.onPlayerComplete.first;
+      return true;
     } catch (e) {
       debugPrint('qf_tv audioplayers failed: $e');
       if (!Platform.isLinux) rethrow;
+      return false;
     }
   }
 
