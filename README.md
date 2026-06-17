@@ -18,6 +18,13 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.15
+
+- Fix v1.0.14 black-screen regression: disable WebView on Linux — YouTube/iframe use thumbnail + title (native WebKit overlay cannot clip to Zone C)
+- Fix announce/TTS audio on Intel ALC269/PCH boxes: ALSA default via PulseAudio (`~/.asoundrc`), stop passing card index to espeak-ng `-a`
+- Kiosk launcher: unmute default sink, detect PCH/ALC/HDA sinks, set `XDG_RUNTIME_DIR` + `AUDIODEV`
+- Direct video URLs play with sound (`video_player` volume 1.0)
+
 ## v1.0.14
 
 - Fix YouTube error 153: iframe via `loadHtmlString` + Referer `baseUrl` (direct embed lacked HTTP Referer)

@@ -25,14 +25,16 @@ class LinuxAudio {
   static Future<void> speakEspeak(String text) async {
     if (!Platform.isLinux) return;
 
-    final args = <String>['-v', 'pt', '-s', '120'];
-    final device = Platform.environment['QF_ESPEAK_DEVICE'];
-    if (device != null && device.isNotEmpty) {
-      args.addAll(['-a', device]);
+    // Route via ALSA default (kiosk ~/.asoundrc → pulse) — do NOT pass -a with card index.
+    final r = await Process.run(
+      'espeak-ng',
+      ['-v', 'pt', '-s', '120', text],
+      environment: _audioEnv(),
+      runInShell: false,
+    );
+    if (r.exitCode != 0) {
+      debugPrint('qf_tv espeak-ng failed (${r.exitCode}): ${r.stderr}');
     }
-    args.add(text);
-
-    await Process.run('espeak-ng', args, environment: _audioEnv(), runInShell: false);
   }
 
   static Map<String, String> _audioEnv() {
@@ -44,6 +46,8 @@ class LinuxAudio {
     final alsa = Platform.environment['QF_ALSA_DEVICE'];
     if (alsa != null && alsa.isNotEmpty) {
       env['AUDIODEV'] = alsa;
+    } else {
+      env.putIfAbsent('AUDIODEV', () => 'default');
     }
     return env;
   }

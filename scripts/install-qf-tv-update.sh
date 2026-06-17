@@ -158,6 +158,19 @@ if [[ -n "$QF_API_HOST" ]]; then
 fi
 
 KIOSK_HOME="$(eval echo "~$KIOSK_USER")"
+
+log "Kiosk audio (ALC269/PCH + rk3568 analog jack)"
+TV_AUDIO="$(mktemp)"
+curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/lib/tv-audio-setup.sh" \
+  -o "$TV_AUDIO" 2>/dev/null || cp "${SCRIPT_DIR}/lib/tv-audio-setup.sh" "$TV_AUDIO" 2>/dev/null || true
+if [[ -f "$TV_AUDIO" ]]; then
+  # shellcheck source=/dev/null
+  source "$TV_AUDIO"
+  install_kiosk_asoundrc "$KIOSK_USER"
+  install_system_asound_fallback
+  rm -f "$TV_AUDIO"
+fi
+
 AUTOSTART="${KIOSK_HOME}/.config/openbox/autostart"
 if [[ -f "$AUTOSTART" ]]; then
   sed -i 's|/opt/qf-tv/qf_tv|/opt/qf-tv/run-qf-tv.sh|g' "$AUTOSTART"

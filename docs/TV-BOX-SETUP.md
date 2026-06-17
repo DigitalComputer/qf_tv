@@ -389,7 +389,7 @@ Optional `.env` on API: `REVERB_CLIENT_PORT=6001` if Reverb is only exposed on 6
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
-sudo env QF_TV_VERSION=v1.0.14 \
+sudo env QF_TV_VERSION=v1.0.15 \
      QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
      bash /tmp/qf-tv-update.sh
 ```
@@ -417,6 +417,23 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
 
 Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. API returns raw `url` from `tv_media_items` table — no transform.
 
+### Black screen — queue UI hidden behind WebView (v1.0.14 regression, fixed v1.0.15)
+
+**Symptoms:** Zone C shows YouTube/video but zones A/B/D are black — queue ticket number, waiting list, ticker invisible.
+
+**Root cause:** `webview_win_floating` renders a **native WebKitGTK overlay above the entire Flutter window**. Even with deferred init, the overlay cannot be clipped to Zone C bounds on Linux — Flutter widgets underneath stay hidden.
+
+**App fix (v1.0.15):** On Linux, **no WebView** for YouTube/iframe/HLS — Zone C shows YouTube thumbnail + title (or `video_player` for direct mp4 URLs). Queue UI always visible.
+
+**Install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
+sudo env QF_TV_VERSION=v1.0.15 \
+     QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
+     bash /tmp/qf-tv-update.sh
+```
+
 ### Black screen + YouTube error 153 (v1.0.13 regression, fixed v1.0.14)
 
 **Symptoms:** Entire display black except YouTube “Error 153 — Video player configuration error”; queue zones (ticket number, waiting list, ticker) invisible.
@@ -432,12 +449,47 @@ Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DigitalComputer/qf_tv/main/scripts/install-qf-tv-update.sh -o /tmp/qf-tv-update.sh
-sudo env QF_TV_VERSION=v1.0.14 \
+sudo env QF_TV_VERSION=v1.0.15 \
      QF_API_HOST=http://administra-o-maianga.queueflow.ao:8000 \
      bash /tmp/qf-tv-update.sh
 ```
 
-After install: queue zones A/B/D visible again; Zone C plays YouTube or shows thumbnail + title if embed still blocked.
+After install: queue zones A/B/D visible again; Zone C shows YouTube thumbnail + title on Linux (no embedded player until proper GTK embedding exists).
+
+### No sound — card present but TTS/announce silent (ALC269 / Intel PCH, fixed v1.0.15)
+
+**Symptoms:** `/proc/asound/cards` shows `HDA Intel PCH` / `ALC269VC`; bare SSH `espeak-ng` → `ALSA cannot find card '0'`; `pactl` → Connection refused without `XDG_RUNTIME_DIR`.
+
+**Root causes:**
+
+1. **PulseAudio not in SSH session** — audio daemon runs under kiosk GUI login, not root SSH.
+2. **Wrong espeak device** — v1.0.14 set `QF_ESPEAK_DEVICE=0` (card index); espeak `-a` expects a device **name**, not card number.
+3. **ALSA default unset** — apps need `~/.asoundrc` routing to PulseAudio.
+
+**Fix (v1.0.15):** install script writes kiosk `~/.asoundrc` + `/etc/asound.conf.d/qf-tv.conf`; launcher sets `XDG_RUNTIME_DIR`, picks analog/PCH sink, unmutes; espeak uses ALSA `default` → pulse.
+
+**Verify in kiosk session (not bare SSH):**
+
+```bash
+KUID=$(id -u kiosk)
+export XDG_RUNTIME_DIR=/run/user/$KUID
+
+# PulseAudio sinks (expect analog / hdmi)
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID pactl list short sinks
+
+# ALSA card (Intel PCH example)
+cat /proc/asound/cards
+aplay -l
+
+# TTS — must use kiosk env
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID espeak-ng -v pt "teste de som"
+
+# MP3 playback test
+sudo -u kiosk XDG_RUNTIME_DIR=/run/user/$KUID paplay /usr/share/sounds/alsa/Front_Center.wav 2>/dev/null \
+  || speaker-test -D plughw:0,0 -c 2 -t wav -l 1
+```
+
+After `install-qf-tv-update.sh` with v1.0.15: reboot or `systemctl restart lightdm`, trigger a queue call — announce MP3 should play on 3.5mm jack.
 
 ### No soundcards at OS level (`aplay -l` empty)
 

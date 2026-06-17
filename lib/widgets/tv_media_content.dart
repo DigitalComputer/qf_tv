@@ -9,6 +9,9 @@ import 'package:webview_win_floating/webview_win_floating.dart' show WinNavigati
 import '../models/models.dart';
 
 /// Zone C media — parity with qf_screen ZoneC (image/video/youtube/iframe/logo).
+///
+/// Linux: no WebView — [webview_win_floating] native overlay covers Flutter UI.
+/// YouTube/iframe → thumbnail + title; video → [VideoPlayer] only.
 class TvMediaContent extends StatefulWidget {
   const TvMediaContent({super.key, required this.item});
 
@@ -21,6 +24,9 @@ class TvMediaContent extends StatefulWidget {
 class _TvMediaContentState extends State<TvMediaContent> {
   static const _embedOrigin = 'https://queueflow.local';
 
+  /// webview_win_floating is a native GTK overlay — cannot clip to Zone C on Linux.
+  static bool get _useWebView => !Platform.isLinux;
+
   VideoPlayerController? _videoCtrl;
   WebViewController? _webCtrl;
   bool _videoFailed = false;
@@ -30,9 +36,11 @@ class _TvMediaContentState extends State<TvMediaContent> {
   @override
   void initState() {
     super.initState();
-    // Defer WebView init until Zone C has layout bounds (webview_win_floating
-    // is a native overlay — loading before layout can cover the full window).
-    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    if (_useWebView) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    } else {
+      _init();
+    }
   }
 
   @override
@@ -43,7 +51,11 @@ class _TvMediaContentState extends State<TvMediaContent> {
       _videoFailed = false;
       _webFailed = false;
       _webReady = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+      if (_useWebView) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+      } else {
+        _init();
+      }
     }
   }
 
@@ -56,9 +68,14 @@ class _TvMediaContentState extends State<TvMediaContent> {
       case 'video':
         await _initVideo(url);
       case 'youtube':
-        _initYouTubeWebView(url);
       case 'iframe':
-        _initIframeWebView(url);
+        if (_useWebView) {
+          if (widget.item.kind == 'youtube') {
+            _initYouTubeWebView(url);
+          } else {
+            _initIframeWebView(url);
+          }
+        }
       default:
         break;
     }
@@ -70,15 +87,17 @@ class _TvMediaContentState extends State<TvMediaContent> {
     try {
       await ctrl.initialize();
       await ctrl.setLooping(true);
-      await ctrl.setVolume(0);
+      await ctrl.setVolume(1);
       await ctrl.play();
       if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('qf_tv video_player failed, webview fallback: $e');
+      debugPrint('qf_tv video_player failed: $e');
       await ctrl.dispose();
       _videoCtrl = null;
       _videoFailed = true;
-      _initGenericWebView(_videoHtmlDataUrl(url));
+      if (_useWebView) {
+        _initGenericWebView(_videoHtmlDataUrl(url));
+      }
       if (mounted) setState(() {});
     }
   }
@@ -142,7 +161,6 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
         platform.controller.setNavigationDelegate(
           WinNavigationDelegate(
             onFullScreenChanged: (isFullScreen) {
-              // YouTube fullscreen expands native overlay over entire Flutter UI.
               if (isFullScreen) platform.controller.setFullScreen(false);
             },
             onWebResourceError: (_) {
@@ -218,13 +236,16 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
             ),
           );
         }
-        if (_webFailed) return _mediaFallback(item);
-        if (_webCtrl != null && _webReady) {
-          return WebViewWidget(controller: _webCtrl!);
+        if (_useWebView) {
+          if (_webFailed) return _mediaFallback(item);
+          if (_webCtrl != null && _webReady) {
+            return WebViewWidget(controller: _webCtrl!);
+          }
         }
-        return const ColoredBox(color: Colors.black);
+        return _mediaFallback(item);
       case 'youtube':
       case 'iframe':
+        if (!_useWebView) return _mediaFallback(item);
         if (_webFailed) return _mediaFallback(item);
         if (_webCtrl != null && _webReady) {
           return WebViewWidget(controller: _webCtrl!);

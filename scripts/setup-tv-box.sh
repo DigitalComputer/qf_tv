@@ -158,6 +158,12 @@ fi
 KIOSK_UID="$(id -u "$KIOSK_USER")"
 KIOSK_HOME="$(eval echo "~$KIOSK_USER")"
 
+log "Kiosk audio (PulseAudio + ALSA defaults for analog jack)"
+# shellcheck source=lib/tv-audio-setup.sh
+source "$(dirname "$0")/lib/tv-audio-setup.sh"
+install_kiosk_asoundrc "$KIOSK_USER"
+install_system_asound_fallback
+
 # ── 3. LightDM auto-login + openbox ─────────────────────────────────────────
 log "Configuring auto-login..."
 mkdir -p /etc/lightdm/lightdm.conf.d
