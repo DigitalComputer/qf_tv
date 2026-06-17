@@ -30,7 +30,7 @@ apt-get update -qq
 apt-get install -y -qq \
   python3 python3-venv python3-pip \
   espeak-ng alsa-utils \
-  libportaudio2 \
+  libportaudio2 libsndfile1 \
   >/dev/null
 
 log "Install → ${INSTALL_DIR}"
@@ -65,19 +65,25 @@ fi
 
 # Detect analog jack (ALC269/PCH or rk3568 ES8388)
 if command -v aplay &>/dev/null; then
-  card="$(aplay -l 2>/dev/null | awk -F'[ :]' \
-    '/card [0-9]+:.*(ES8388|RK817|RK809|codec|Analog|PCH|ALC|Intel|HDA)/{print $2; exit}')"
-  dev="$(aplay -l 2>/dev/null | awk -v c="$card" -F'[ :]' '$2==c && /device/{print $4; exit}')"
-  if [[ -n "$card" && -n "$dev" ]]; then
-    alsa_dev="plughw:${card},${dev}"
-    if ! grep -q '^AUDIO_DEVICE=' "${INSTALL_DIR}/.env" 2>/dev/null; then
+  alsa_dev=""
+  if aplay -l 2>/dev/null | grep -qE 'card [0-9]+:.*PCH|ALC269'; then
+    alsa_dev="plughw:CARD=PCH,DEV=0"
+  elif aplay -l 2>/dev/null | grep -qE 'card [0-9]+:.*ES8388|RK817|RK809'; then
+    card="$(aplay -l 2>/dev/null | awk '/card [0-9]+:.*(ES8388|RK817|RK809)/{gsub(/:/,"",$2); print $2; exit}')"
+    alsa_dev="plughw:${card},0"
+  fi
+  if [[ -n "$alsa_dev" ]]; then
+    if grep -q '^AUDIO_DEVICE=' "${INSTALL_DIR}/.env" 2>/dev/null; then
+      sed -i "s|^AUDIO_DEVICE=.*|AUDIO_DEVICE=${alsa_dev}|" "${INSTALL_DIR}/.env"
+    else
       echo "AUDIO_DEVICE=${alsa_dev}" >> "${INSTALL_DIR}/.env"
     fi
     ok "ALSA device: ${alsa_dev}"
   fi
 fi
 
-log "Python venv + pip install (Kokoro model downloads on first speak)"
+log "Python venv + pip install (Kokoro ONNX model downloads on first speak)"
+rm -rf "${INSTALL_DIR}/venv"
 python3 -m venv "${INSTALL_DIR}/venv"
 "${INSTALL_DIR}/venv/bin/pip" install -q --upgrade pip
 "${INSTALL_DIR}/venv/bin/pip" install -q -r "${INSTALL_DIR}/requirements.txt"

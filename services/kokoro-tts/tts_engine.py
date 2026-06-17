@@ -5,12 +5,11 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import wave
 from pathlib import Path
 
 import numpy as np
 
-_pipeline = None
+_engine = None
 _playback_proc: subprocess.Popen | None = None
 
 
@@ -18,14 +17,8 @@ def _voice() -> str:
     return os.environ.get("TTS_VOICE", "pf_dora")
 
 
-def _lang_code() -> str:
-    # pt-br → Brazilian Portuguese (Kokoro code "p")
-    lang = os.environ.get("TTS_LANG", "pt-br").lower()
-    if lang in ("pt-br", "pt_br", "pt"):
-        return "p"
-    if lang.startswith("pt-pt"):
-        return "p"  # no dedicated pt-PT voice — pf_dora is closest
-    return "p"
+def _lang() -> str:
+    return os.environ.get("TTS_LANG", "pt-br")
 
 
 def _speed() -> float:
@@ -40,26 +33,31 @@ def _audio_device() -> str | None:
     return dev or None
 
 
-def get_pipeline():
-    global _pipeline
-    if _pipeline is not None:
-        return _pipeline
+def get_engine():
+    """Lazy init — downloads ONNX model to ~/.cache/kokoro-onnx/ on first use."""
+    global _engine
+    if _engine is not None:
+        return _engine
 
-    from kokoro import KPipeline
+    from kokoro_onnx import Kokoro
 
-    _pipeline = KPipeline(lang_code=_lang_code(), repo_id="hexgrad/Kokoro-82M")
-    return _pipeline
+    print("kokoro-tts: loading Kokoro ONNX model (first run may download ~310MB)...")
+    _engine = Kokoro.from_pretrained()
+    print("kokoro-tts: engine ready")
+    return _engine
 
 
 def synthesize(text: str) -> tuple[np.ndarray, int]:
-    pipe = get_pipeline()
-    chunks: list[np.ndarray] = []
-    for _, _, chunk in pipe(text, voice=_voice(), speed=_speed()):
-        chunks.append(chunk)
-    if not chunks:
+    engine = get_engine()
+    samples, sample_rate = engine.create(
+        text,
+        voice=_voice(),
+        speed=_speed(),
+        lang=_lang(),
+    )
+    if samples is None or len(samples) == 0:
         raise RuntimeError("Kokoro produced no audio")
-    audio = np.concatenate(chunks)
-    return audio, 24000
+    return np.asarray(samples, dtype=np.float32), int(sample_rate)
 
 
 def _write_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
@@ -81,7 +79,6 @@ def stop_playback() -> None:
                 pass
         _playback_proc = None
 
-    # Kill stray aplay from prior speak
     subprocess.run(["pkill", "-f", "aplay.*qf_kokoro"], check=False)
 
 
@@ -90,7 +87,6 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
 
     device = _audio_device()
 
-    # Prefer sounddevice when available
     try:
         import sounddevice as sd
 
