@@ -12,12 +12,23 @@ import numpy as np
 _engine = None
 _playback_proc: subprocess.Popen | None = None
 
+MODEL_ONNX = "kokoro-v1.0.onnx"
+MODEL_VOICES = "voices-v1.0.bin"
+MODEL_BASE_URL = (
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+)
+
+
+def _model_dir() -> Path:
+    return Path(os.environ.get("KOKORO_MODEL_DIR", "/opt/qf-kokoro-tts/models"))
+
 
 def _voice() -> str:
     return os.environ.get("TTS_VOICE", "pf_dora")
 
 
 def _lang() -> str:
+    # kokoro-onnx phonemizer/espeak-ng code (VOICES.md: pt-br → pf_dora)
     return os.environ.get("TTS_LANG", "pt-br")
 
 
@@ -33,25 +44,52 @@ def _audio_device() -> str | None:
     return dev or None
 
 
+def _ensure_models(model_dir: Path) -> tuple[Path, Path]:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / MODEL_ONNX
+    voices_path = model_dir / MODEL_VOICES
+
+    import urllib.request
+
+    for name, path in ((MODEL_ONNX, model_path), (MODEL_VOICES, voices_path)):
+        if path.exists() and path.stat().st_size > 0:
+            continue
+        url = f"{MODEL_BASE_URL}/{name}"
+        print(f"kokoro-tts: downloading {name} from {url} ...")
+        urllib.request.urlretrieve(url, path)
+        print(f"kokoro-tts: saved {path}")
+
+    if not model_path.exists() or not voices_path.exists():
+        raise FileNotFoundError(f"Kokoro model files missing under {model_dir}")
+
+    return model_path, voices_path
+
+
 def get_engine():
-    """Lazy init — downloads ONNX model to ~/.cache/kokoro-onnx/ on first use."""
+    """Load Kokoro ONNX engine (downloads model files on first use if needed)."""
     global _engine
     if _engine is not None:
         return _engine
 
     from kokoro_onnx import Kokoro
 
-    print("kokoro-tts: loading Kokoro ONNX model (first run may download ~310MB)...")
-    _engine = Kokoro.from_pretrained()
+    model_path, voices_path = _ensure_models(_model_dir())
+    print(f"kokoro-tts: loading {model_path.name} + {voices_path.name}")
+    _engine = Kokoro(str(model_path), str(voices_path))
     print("kokoro-tts: engine ready")
     return _engine
 
 
 def synthesize(text: str) -> tuple[np.ndarray, int]:
     engine = get_engine()
+    voice = _voice()
+    available = engine.get_voices()
+    if voice not in available:
+        raise ValueError(f"Voice {voice!r} not in model; try one of: {available[:8]}...")
+
     samples, sample_rate = engine.create(
         text,
-        voice=_voice(),
+        voice=voice,
         speed=_speed(),
         lang=_lang(),
     )
@@ -111,6 +149,8 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
         global _playback_proc
         _playback_proc = subprocess.Popen(cmd)
         _playback_proc.wait()
+        if _playback_proc.returncode != 0:
+            raise RuntimeError(f"aplay exited {_playback_proc.returncode}")
         _playback_proc = None
     finally:
         wav_path.unlink(missing_ok=True)

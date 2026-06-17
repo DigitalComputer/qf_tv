@@ -120,6 +120,21 @@ rm -rf "${INSTALL_DIR}/venv"
 
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "$INSTALL_DIR"
 
+log "Kokoro ONNX model files (~300MB total, skip if cached)"
+MODEL_DIR="${INSTALL_DIR}/models"
+mkdir -p "$MODEL_DIR"
+for f in kokoro-v1.0.onnx voices-v1.0.bin; do
+  if [[ ! -s "${MODEL_DIR}/${f}" ]]; then
+    curl -fsSL --retry 3 --retry-delay 5 \
+      "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/${f}" \
+      -o "${MODEL_DIR}/${f}"
+    ok "Downloaded ${f}"
+  else
+    ok "Cached ${f}"
+  fi
+done
+chown -R "${KIOSK_USER}:${KIOSK_USER}" "$MODEL_DIR"
+
 log "systemd unit ${SERVICE_NAME}"
 cp "${INSTALL_DIR}/queueflow-tts.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload

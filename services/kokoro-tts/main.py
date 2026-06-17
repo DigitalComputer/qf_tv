@@ -6,7 +6,7 @@ import os
 import threading
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -29,9 +29,15 @@ def health():
 @app.post("/speak")
 def speak(req: SpeakRequest):
     """Synthesize PT text and play on local audio device (blocking until done)."""
-    with _speak_lock:
-        tts_engine.speak(req.text)
-    return {"ok": True}
+    try:
+        with _speak_lock:
+            tts_engine.speak(req.text)
+        return {"ok": True}
+    except Exception as exc:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/stop")
