@@ -10,8 +10,8 @@ import '../models/models.dart';
 
 /// Zone C media — parity with qf_screen ZoneC (image/video/youtube/iframe/logo).
 ///
-/// Linux: no WebView — [webview_win_floating] native overlay covers Flutter UI.
-/// YouTube/iframe → thumbnail + title; video → [VideoPlayer] only.
+/// Linux: [webview_win_floating] is a native GTK overlay — defer load until
+/// WebViewWidget has Zone C bounds (two post-frame passes) so queue UI stays visible.
 class TvMediaContent extends StatefulWidget {
   const TvMediaContent({super.key, required this.item});
 
@@ -24,9 +24,6 @@ class TvMediaContent extends StatefulWidget {
 class _TvMediaContentState extends State<TvMediaContent> {
   static const _embedOrigin = 'https://queueflow.local';
 
-  /// webview_win_floating is a native GTK overlay — cannot clip to Zone C on Linux.
-  static bool get _useWebView => !Platform.isLinux;
-
   VideoPlayerController? _videoCtrl;
   WebViewController? _webCtrl;
   bool _videoFailed = false;
@@ -36,11 +33,8 @@ class _TvMediaContentState extends State<TvMediaContent> {
   @override
   void initState() {
     super.initState();
-    if (_useWebView) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _init());
-    } else {
-      _init();
-    }
+    // Defer init until Zone C has layout bounds (webview_win_floating native overlay).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
   }
 
   @override
@@ -51,11 +45,7 @@ class _TvMediaContentState extends State<TvMediaContent> {
       _videoFailed = false;
       _webFailed = false;
       _webReady = false;
-      if (_useWebView) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _init());
-      } else {
-        _init();
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _init());
     }
   }
 
@@ -68,14 +58,9 @@ class _TvMediaContentState extends State<TvMediaContent> {
       case 'video':
         await _initVideo(url);
       case 'youtube':
+        await _initYouTubeWebView(url);
       case 'iframe':
-        if (_useWebView) {
-          if (widget.item.kind == 'youtube') {
-            _initYouTubeWebView(url);
-          } else {
-            _initIframeWebView(url);
-          }
-        }
+        await _initIframeWebView(url);
       default:
         break;
     }
@@ -95,14 +80,12 @@ class _TvMediaContentState extends State<TvMediaContent> {
       await ctrl.dispose();
       _videoCtrl = null;
       _videoFailed = true;
-      if (_useWebView) {
-        _initGenericWebView(_videoHtmlDataUrl(url));
-      }
+      await _loadGenericWebView(_videoHtmlDataUrl(url));
       if (mounted) setState(() {});
     }
   }
 
-  void _initYouTubeWebView(String url) {
+  Future<void> _initYouTubeWebView(String url) async {
     final id = _youtubeId(url);
     final html = '''
 <!DOCTYPE html><html><head>
@@ -117,10 +100,10 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
   allow="autoplay; encrypted-media; fullscreen"
 ></iframe>
 </body></html>''';
-    _initHtmlWebView(html);
+    await _loadHtmlWebView(html);
   }
 
-  void _initIframeWebView(String url) {
+  Future<void> _initIframeWebView(String url) async {
     final safe = url.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
     final html = '''
 <!DOCTYPE html><html><head>
@@ -133,21 +116,39 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
   sandbox="allow-scripts allow-same-origin allow-presentation"
   allow="autoplay; encrypted-media; fullscreen"></iframe>
 </body></html>''';
-    _initHtmlWebView(html);
+    await _loadHtmlWebView(html);
   }
 
-  void _initGenericWebView(String loadUrl) {
-    final ctrl = _createWebController();
-    ctrl.loadRequest(Uri.parse(loadUrl));
-    _webCtrl = ctrl;
-    _markWebReady();
+  Future<void> _loadGenericWebView(String loadUrl) async {
+    await _prepareWebView();
+    _scheduleWebLoad(() {
+      _webCtrl!.loadRequest(Uri.parse(loadUrl));
+    });
   }
 
-  void _initHtmlWebView(String html) {
+  Future<void> _loadHtmlWebView(String html) async {
+    await _prepareWebView();
+    _scheduleWebLoad(() {
+      _webCtrl!.loadHtmlString(html, baseUrl: _embedOrigin);
+    });
+  }
+
+  /// Mount [WebViewWidget] first so layout bounds reach native overlay, then load.
+  Future<void> _prepareWebView() async {
+    if (_webCtrl != null) return;
     final ctrl = _createWebController();
-    ctrl.loadHtmlString(html, baseUrl: _embedOrigin);
     _webCtrl = ctrl;
-    _markWebReady();
+    await _hideLinuxWebView(ctrl);
+    if (mounted) setState(() => _webReady = true);
+  }
+
+  void _scheduleWebLoad(void Function() load) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _webCtrl == null) return;
+        load();
+      });
+    });
   }
 
   WebViewController _createWebController() {
@@ -174,9 +175,12 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
     return ctrl;
   }
 
-  void _markWebReady() {
-    if (!mounted) return;
-    setState(() => _webReady = true);
+  Future<void> _hideLinuxWebView(WebViewController ctrl) async {
+    if (!Platform.isLinux) return;
+    final platform = ctrl.platform;
+    if (platform is WindowsPlatformWebViewController) {
+      await platform.controller.setVisibility(false);
+    }
   }
 
   void _disposePlayers() {
@@ -236,16 +240,13 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
             ),
           );
         }
-        if (_useWebView) {
-          if (_webFailed) return _mediaFallback(item);
-          if (_webCtrl != null && _webReady) {
-            return WebViewWidget(controller: _webCtrl!);
-          }
+        if (_webFailed) return _mediaFallback(item);
+        if (_webCtrl != null && _webReady) {
+          return WebViewWidget(controller: _webCtrl!);
         }
         return _mediaFallback(item);
       case 'youtube':
       case 'iframe':
-        if (!_useWebView) return _mediaFallback(item);
         if (_webFailed) return _mediaFallback(item);
         if (_webCtrl != null && _webReady) {
           return WebViewWidget(controller: _webCtrl!);

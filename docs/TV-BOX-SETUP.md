@@ -423,6 +423,8 @@ Expect `kind: youtube` with YouTube URL, or `kind: video` with `.m3u8`/mp4 URL. 
 
 **Root cause:** `webview_win_floating` renders a **native WebKitGTK overlay above the entire Flutter window**. Even with deferred init, the overlay cannot be clipped to Zone C bounds on Linux — Flutter widgets underneath stay hidden.
 
+**App fix (v1.0.16):** Re-enable bounded WebView on Linux — mount `WebViewWidget` in Zone C first, wait two frames for `updateBounds`, then load YouTube/iframe/HLS with `autoplay=1`. Direct mp4 autoplays via `video_player`. Queue zones stay visible.
+
 **App fix (v1.0.15):** On Linux, **no WebView** for YouTube/iframe/HLS — Zone C shows YouTube thumbnail + title (or `video_player` for direct mp4 URLs). Queue UI always visible.
 
 **Install:**

@@ -18,6 +18,11 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
+## v1.0.16
+
+- Zone C autoplay on Linux: re-enable bounded WebView (mount widget → set bounds → load) for YouTube/iframe/HLS; direct mp4 via `video_player` autoplay + loop
+- Queue zones A/B/D stay visible — WebView load deferred two frames after Zone C layout
+
 ## v1.0.15
 
 - Fix v1.0.14 black-screen regression: disable WebView on Linux — YouTube/iframe use thumbnail + title (native WebKit overlay cannot clip to Zone C)
