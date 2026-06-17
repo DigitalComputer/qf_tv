@@ -102,8 +102,12 @@ fi
 log "Python venv + pip install (Kokoro ONNX model downloads on first speak)"
 PYTHON="$(find_python || true)"
 if [[ -z "${PYTHON}" ]]; then
-  log "Installing python3.12 (system python too new for kokoro-onnx; need >=3.10,<3.14)"
-  apt-get install -y -qq python3.12 python3.12-venv python3.12-dev
+  log "System Python >=3.14 detected — adding deadsnakes PPA for python3.12"
+  apt-get install -y -qq software-properties-common
+  add-apt-repository -y ppa:deadsnakes/ppa
+  apt-get update -qq
+  apt-get install -y -qq python3.12 python3.12-venv python3.12-dev \
+    || die "python3.12 install failed — check distro or install via pyenv"
   PYTHON=python3.12
   _python_ok "$PYTHON" || die "python3.12 not usable after install"
 fi
