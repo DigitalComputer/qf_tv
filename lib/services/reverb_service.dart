@@ -6,23 +6,24 @@ import 'package:flutter/foundation.dart';
 
 import '../models/models.dart';
 
-typedef ReverbEventCallback = void Function(Map<String, dynamic>? payload);
+typedef ReverbEventCallback = void Function(String event, Map<String, dynamic>? payload);
 
 enum ReverbConnectionState { disconnected, connecting, connected, error }
 
-/// Laravel Reverb — branch calls + branch queues channels.
+/// Laravel Reverb — branch calls + branch queues channels (single or multi-unidade).
 class ReverbService {
   ReverbService({
     required this.config,
     required this.tenantId,
-    required this.branchId,
+    String? branchId,
+    List<String>? branchIds,
     required this.onEvent,
     required this.onStateChange,
-  });
+  })  : branchIds = _resolveBranchIds(branchId, branchIds);
 
   final ReverbConfig config;
   final String tenantId;
-  final String branchId;
+  final List<String> branchIds;
   final ReverbEventCallback onEvent;
   final void Function(ReverbConnectionState state) onStateChange;
 
@@ -36,11 +37,26 @@ class ReverbService {
   static const _pollInterval = Duration(seconds: 3);
   static const _connectedPollInterval = Duration(seconds: 8);
 
-  String get _callsChannel => 'tenant.$tenantId.branch.$branchId.calls';
-  String get _queuesChannel => 'tenant.$tenantId.branch.$branchId.queues';
+  static List<String> _resolveBranchIds(String? branchId, List<String>? branchIds) {
+    if (branchIds != null && branchIds.isNotEmpty) {
+      return branchIds;
+    }
+    if (branchId != null && branchId.isNotEmpty) {
+      return [branchId];
+    }
+    return [];
+  }
+
+  List<String> get _callsChannels => branchIds
+      .map((id) => 'tenant.$tenantId.branch.$id.calls')
+      .toList();
+
+  List<String> get _queuesChannels => branchIds
+      .map((id) => 'tenant.$tenantId.branch.$id.queues')
+      .toList();
 
   void connect() {
-    if (_disposed || tenantId.isEmpty || branchId.isEmpty || config.key.isEmpty) {
+    if (_disposed || tenantId.isEmpty || branchIds.isEmpty || config.key.isEmpty) {
       _startPollFallback();
       return;
     }
@@ -73,11 +89,13 @@ class ReverbService {
     );
 
     _client = client;
-    final calls = client.publicChannel(_callsChannel);
-    final queues = client.publicChannel(_queuesChannel);
+    final callsChannels =
+        _callsChannels.map((name) => client.publicChannel(name)).toList();
+    final queuesChannels =
+        _queuesChannels.map((name) => client.publicChannel(name)).toList();
 
     void bind(Channel channel, String event) {
-      _eventSubs.add(channel.bind(event).listen((e) => _emitPayload(e.data)));
+      _eventSubs.add(channel.bind(event).listen((e) => _emitPayload(event, e.data)));
     }
 
     void bindAny(Channel channel, List<String> events) {
@@ -86,33 +104,41 @@ class ReverbService {
       }
     }
 
-    bindAny(calls, ['ticket.called', 'ticket.issued', 'ticket.served', 'ticket.completed']);
-    bindAny(queues, ['QueueUpdated', 'queue.updated']);
+    for (final channel in callsChannels) {
+      bindAny(channel, ['ticket.called', 'ticket.issued', 'ticket.served', 'ticket.completed']);
+    }
+    for (final channel in queuesChannels) {
+      bindAny(channel, ['QueueUpdated', 'queue.updated']);
+    }
 
     _connectedSub = client.onConnectionEstablished.listen((_) {
       _reconnectAttempt = 0;
       onStateChange(ReverbConnectionState.connected);
-      calls.subscribe();
-      queues.subscribe();
+      for (final channel in [...callsChannels, ...queuesChannels]) {
+        channel.subscribe();
+      }
       _startConnectedPoll();
-      debugPrint('qf_tv Reverb connected — $_callsChannel + $_queuesChannel');
+      debugPrint(
+        'qf_tv Reverb connected — ${branchIds.length} branch(es): '
+        '${_callsChannels.join(', ')}',
+      );
     });
 
     client.connect();
   }
 
-  void _emitPayload(String raw) {
+  void _emitPayload(String event, String raw) {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) {
-        onEvent(decoded);
+        onEvent(event, decoded);
       } else if (decoded is Map) {
-        onEvent(Map<String, dynamic>.from(decoded));
+        onEvent(event, Map<String, dynamic>.from(decoded));
       } else {
-        onEvent(null);
+        onEvent(event, null);
       }
     } catch (_) {
-      onEvent(null);
+      onEvent(event, null);
     }
   }
 
@@ -129,7 +155,7 @@ class ReverbService {
     if (_disposed) return;
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(_pollInterval, (_) {
-      if (!_disposed) onEvent(null);
+      if (!_disposed) onEvent('poll', null);
     });
   }
 
@@ -138,7 +164,7 @@ class ReverbService {
     if (_disposed) return;
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(_connectedPollInterval, (_) {
-      if (!_disposed) onEvent(null);
+      if (!_disposed) onEvent('poll', null);
     });
   }
 

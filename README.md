@@ -18,7 +18,13 @@ sudo reboot
 
 Downloads the app from [GitHub Releases](https://github.com/DigitalComputer/qf_tv/releases), configures kiosk auto-login + systemd.
 
-## v1.0.8
+## v1.0.12
+
+- Sound: API neural TTS (`/api/v1/display/announce`) like qf_screen — espeak fallback
+- Layout parity with qf_screen: split/default/full via `display/config` + Zone A–D grid
+- Reverb `ticket.called` triggers instant announce + UI update (not poll-only)
+
+## v1.0.11
 
 - Fix queue refresh 403 (`GET /api/v1/tv/queue` — token only, no display id mismatch)
 - Stop marking Reverb disconnected on HTTP errors

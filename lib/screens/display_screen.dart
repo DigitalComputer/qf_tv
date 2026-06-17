@@ -3,14 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../layouts/web_display_layout.dart';
 import '../models/models.dart';
-import '../renderer/template_renderer.dart';
 import '../services/announce_service.dart';
 import '../services/reverb_service.dart';
 import '../services/services.dart';
 import '../theme.dart';
 import 'display_picker_screen.dart';
 
+/// Display screen — same data flow as qf_screen (config + state + Reverb + API TTS).
 class DisplayScreen extends StatefulWidget {
   final ActivateResult session;
 
@@ -23,16 +24,26 @@ class DisplayScreen extends StatefulWidget {
 class _DisplayScreenState extends State<DisplayScreen> {
   late ApiService _api;
   late String _token;
+  AnnounceService? _announce;
   ReverbService? _reverb;
-  final AnnounceService _announce = AnnounceService();
-  DisplayTemplate _template = DisplayTemplate.fallback;
-  QueueState _queueState = QueueState.empty('');
+
+  DisplayConfig? _config;
+  String? _displayCode;
+  String? _serviceName;
+  String? _counterName;
+  bool _isCalling = false;
+  List<QueueTicket> _waiting = [];
+  List<QueueTicket> _serving = [];
+  int _totalWaiting = 0;
+
   ReverbConnectionState _reverbState = ReverbConnectionState.disconnected;
+  bool _connected = false;
   bool _loading = true;
   String? _errorMessage;
   String? _lastAnnouncedCode;
   int _refreshGeneration = 0;
   Timer? _refreshDebounce;
+  Timer? _pollTimer;
 
   bool _ctrlPPressed = false;
   DateTime? _ctrlPAt;
@@ -43,9 +54,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   void initState() {
     super.initState();
     _token = widget.session.token;
-    _queueState = QueueState.empty(widget.session.displayName);
     HardwareKeyboard.instance.addHandler(_handleUnlockSequence);
-    _announce.init();
     _bootstrap();
   }
 
@@ -78,33 +87,14 @@ class _DisplayScreenState extends State<DisplayScreen> {
   }
 
   Future<void> _goToPicker() async {
-    await _announce.stop();
+    _pollTimer?.cancel();
+    await _announce?.dispose();
     _reverb?.dispose();
     await StorageService.clearSession();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const DisplayPickerScreen()),
     );
-  }
-
-  Future<void> _persistSession({
-    required String displayId,
-    required String displayName,
-    required String branchId,
-    required String templateId,
-    required String tenantId,
-    required String apiHost,
-  }) async {
-    await StorageService.saveSession(ActivateResult(
-      displayId: displayId,
-      displayName: displayName,
-      branchId: branchId,
-      templateId: templateId,
-      token: _token,
-      tenantId: tenantId,
-      apiHost: apiHost,
-      reverb: widget.session.reverb,
-    ));
   }
 
   Future<void> _bootstrap() async {
@@ -115,37 +105,33 @@ class _DisplayScreenState extends State<DisplayScreen> {
       );
       final api = ApiService(host);
       _api = api;
+      _announce = AnnounceService(api: api, token: _token);
+      await _announce!.init();
 
-      final boot = await api.bootstrap(_token);
+      final config = await api.getDisplayConfig(_token);
+      final state = await api.getDisplayState(_token);
+
       if (!mounted) return;
 
-      final tenantHost = boot.apiHost.isNotEmpty
-          ? await ApiService.resolveReachableHost(boot.apiHost)
-          : host;
-
-      await _persistSession(
-        displayId: boot.displayId,
-        displayName: widget.session.displayName,
-        branchId: boot.branchId,
-        templateId: boot.template.id,
-        tenantId: boot.tenantId,
-        apiHost: tenantHost,
-      );
-
+      _applyState(state);
       setState(() {
-        _template = boot.template;
-        _queueState = boot.queue;
+        _config = config;
+        _connected = true;
         _errorMessage = null;
       });
 
-      await _refreshQueue();
-      _maybeAnnounce(_queueState.nowCalling);
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _refreshState());
+
+      final branchIds = config.effectiveBranchIds.isNotEmpty
+          ? config.effectiveBranchIds
+          : widget.session.effectiveBranchIds;
 
       _reverb = ReverbService(
-        config: boot.reverb,
-        tenantId: boot.tenantId,
-        branchId: boot.branchId,
-        onEvent: (_) => _scheduleRefresh(),
+        config: config.reverb.key.isNotEmpty ? config.reverb : widget.session.reverb,
+        tenantId: config.tenantId.isNotEmpty ? config.tenantId : widget.session.tenantId,
+        branchIds: branchIds,
+        onEvent: _handleReverbEvent,
         onStateChange: (state) {
           if (mounted) setState(() => _reverbState = state);
         },
@@ -163,46 +149,115 @@ class _DisplayScreenState extends State<DisplayScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  void _handleReverbEvent(String event, Map<String, dynamic>? payload) {
+    if (event == 'ticket.called' && payload != null) {
+      final code = payload['display_code']?.toString() ??
+          payload['ticket_number']?.toString() ??
+          '';
+      final svc = payload['service_name']?.toString() ?? '';
+      final ctr = payload['counter_name']?.toString();
+      final ctrNum = AnnounceService.counterNumberFromPayload(payload);
+
+      if (mounted) {
+        setState(() {
+          _displayCode = code.isNotEmpty ? code : _displayCode;
+          _serviceName = svc.isNotEmpty ? svc : _serviceName;
+          _counterName = ctr != null && ctr.isNotEmpty && ctr != 'Guichet' ? ctr : _counterName;
+          _isCalling = code.isNotEmpty;
+          _connected = true;
+        });
+      }
+
+      if (code.isNotEmpty && (_config?.ttsEnabled ?? true)) {
+        _announceTicket(code, counterNumber: ctrNum, counterName: ctr);
+      }
+    } else if (event == 'ticket.served' || event == 'ticket.completed') {
+      if (mounted) setState(() => _isCalling = false);
+    }
+
+    _scheduleRefresh();
+  }
+
   void _scheduleRefresh() {
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 120), () {
-      if (mounted) _refreshQueue();
+      if (mounted) _refreshState();
     });
   }
 
-  Future<void> _refreshQueue() async {
+  Future<void> _refreshState() async {
     final generation = ++_refreshGeneration;
     try {
-      final state = await _api.getQueue(_token);
+      final state = await _api.getDisplayState(_token);
       if (!mounted || generation != _refreshGeneration) return;
+
+      final prevCalling = _displayCode;
+      _applyState(state);
+
       setState(() {
-        _queueState = state;
+        _connected = true;
         _errorMessage = null;
       });
-      _maybeAnnounce(state.nowCalling);
+
+      final calling = state.nowCalling;
+      if (calling != null &&
+          calling.ticketCode.isNotEmpty &&
+          calling.ticketCode != prevCalling &&
+          calling.ticketCode != _lastAnnouncedCode &&
+          (_config?.ttsEnabled ?? true)) {
+        _announceTicket(
+          calling.ticketCode,
+          counterNumber: AnnounceService.counterNumberFromName(calling.counterName),
+          counterName: calling.counterName,
+        );
+      }
     } catch (e, st) {
-      debugPrint('qf_tv queue refresh failed: $e\n$st');
+      debugPrint('qf_tv state refresh failed: $e\n$st');
       if (!mounted || generation != _refreshGeneration) return;
       setState(() {
+        _connected = false;
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
-  void _maybeAnnounce(QueueTicket? ticket) {
-    if (ticket == null) return;
-    final code = ticket.ticketCode;
+  void _applyState(DisplayState state) {
+    final calling = state.nowCalling;
+    if (calling != null) {
+      _displayCode = calling.ticketCode;
+      _serviceName = calling.serviceType;
+      _counterName = calling.counterName.isNotEmpty && calling.counterName != 'Guichet'
+          ? calling.counterName
+          : null;
+      _isCalling = true;
+    } else {
+      _displayCode = null;
+      _serviceName = null;
+      _counterName = null;
+      _isCalling = false;
+    }
+    _waiting = state.waitingNext;
+    _serving = state.nowServing;
+    _totalWaiting = state.totalWaiting;
+  }
+
+  void _announceTicket(
+    String code, {
+    int? counterNumber,
+    String? counterName,
+  }) {
     if (code.isEmpty || code == _lastAnnouncedCode) return;
     _lastAnnouncedCode = code;
-    _announce.announceTicket(
+    _announce?.announceTicket(
       code,
-      counterLabel: AnnounceService.counterPhrase(ticket.counterName),
+      counterNumber: counterNumber,
+      counterLabel: AnnounceService.counterPhrase(counterName),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
+    if (_loading || _config == null) {
       return const Scaffold(
         backgroundColor: QueueTheme.bg,
         body: Center(
@@ -212,21 +267,28 @@ class _DisplayScreenState extends State<DisplayScreen> {
     }
 
     return Scaffold(
-      backgroundColor: QueueTheme.bg,
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          TemplateRenderer(
-            template: _template,
-            queueState: _queueState,
+          WebDisplayLayout(
+            config: _config!,
+            displayCode: _displayCode,
+            serviceName: _serviceName,
+            counterName: _counterName,
+            isCalling: _isCalling,
+            waiting: _waiting,
+            serving: _serving,
+            totalWaiting: _totalWaiting,
+            connected: _connected,
             wsConnected: _wsConnected,
           ),
           if (_errorMessage != null)
             Positioned(
               left: 24,
               right: 24,
-              bottom: 16,
+              bottom: 72,
               child: Material(
-                color: QueueTheme.red.withOpacity(0.15),
+                color: QueueTheme.red.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -245,9 +307,10 @@ class _DisplayScreenState extends State<DisplayScreen> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _refreshDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleUnlockSequence);
-    _announce.stop();
+    _announce?.dispose();
     _reverb?.dispose();
     super.dispose();
   }

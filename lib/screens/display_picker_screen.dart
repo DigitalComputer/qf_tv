@@ -21,6 +21,10 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
   static const _pollInterval = Duration(seconds: 15);
 
   List<TvDisplay> _displays = [];
+  List<TvBranch> _branches = [];
+  final List<String> _selectedBranchIds = [];
+  bool _multiUnitMode = false;
+  bool _loadingBranches = false;
   bool _loading = true;
   bool _refreshing = false;
   String? _error;
@@ -115,8 +119,63 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
     }
   }
 
+  Future<void> _loadBranches() async {
+    setState(() {
+      _loadingBranches = true;
+      _error = null;
+    });
+
+    try {
+      final host = _apiHost != null && _apiHost!.isNotEmpty
+          ? await ApiService.resolveReachableHost(_apiHost!)
+          : await ApiService.resolveReachableHost();
+      final branches = await ApiService(host).getBranches();
+      if (!mounted) return;
+      setState(() {
+        _branches = branches;
+        _loadingBranches = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingBranches = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _toggleMultiUnitMode() async {
+    final next = !_multiUnitMode;
+    setState(() {
+      _multiUnitMode = next;
+      _error = null;
+      if (!next) {
+        _selectedBranchIds.clear();
+      }
+    });
+    if (next && _branches.isEmpty) {
+      await _loadBranches();
+    }
+  }
+
+  void _toggleBranch(TvBranch branch) {
+    setState(() {
+      if (_selectedBranchIds.contains(branch.id)) {
+        _selectedBranchIds.remove(branch.id);
+      } else {
+        _selectedBranchIds.add(branch.id);
+      }
+      _error = null;
+    });
+  }
+
   Future<void> _select(TvDisplay display) async {
     if (_activating) return;
+    if (_multiUnitMode && _selectedBranchIds.length < 2) {
+      setState(() => _error = 'Seleccione pelo menos 2 unidades (ordem = prioridade de letras)');
+      return;
+    }
+
     setState(() => _activating = true);
 
     try {
@@ -124,7 +183,8 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
           ? await ApiService.resolveReachableHost(display.apiHost)
           : await ApiService.resolveReachableHost();
       final api = ApiService(host);
-      final result = await api.activate(display.id);
+      final branchIds = _multiUnitMode ? List<String>.from(_selectedBranchIds) : null;
+      final result = await api.activate(display.id, branchIds: branchIds);
       final tenantHost = result.apiHost.isNotEmpty
           ? await ApiService.resolveReachableHost(result.apiHost)
           : host;
@@ -132,6 +192,7 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
         displayId: result.displayId,
         displayName: result.displayName,
         branchId: result.branchId,
+        branchIds: result.branchIds,
         templateId: result.templateId,
         token: result.token,
         tenantId: result.tenantId,
@@ -207,13 +268,67 @@ class _DisplayPickerScreenState extends State<DisplayPickerScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                _syncLabel(),
-                style: QueueTheme.label.copyWith(
-                  color: QueueTheme.textMuted,
-                  fontSize: 13,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _syncLabel(),
+                      style: QueueTheme.label.copyWith(
+                        color: QueueTheme.textMuted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _activating ? null : _toggleMultiUnitMode,
+                    icon: Icon(
+                      _multiUnitMode ? Icons.layers : Icons.layers_outlined,
+                      size: 18,
+                      color: _multiUnitMode ? QueueTheme.amber : QueueTheme.textMuted,
+                    ),
+                    label: Text(
+                      _multiUnitMode ? 'Várias unidades' : 'Uma unidade',
+                      style: TextStyle(
+                        color: _multiUnitMode ? QueueTheme.amber : QueueTheme.textMuted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              if (_multiUnitMode) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Ordem de selecção define prioridade das letras (A, B, C…)',
+                  style: QueueTheme.label.copyWith(
+                    color: QueueTheme.textMuted,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_loadingBranches)
+                  const LinearProgressIndicator(color: QueueTheme.amber)
+                else if (_branches.isEmpty)
+                  Text('Sem unidades — Ctrl+R', style: QueueTheme.body)
+                else
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: _branches.map((b) {
+                      final order = _selectedBranchIds.indexOf(b.id);
+                      final selected = order >= 0;
+                      return FilterChip(
+                        label: Text(
+                          selected ? '${order + 1}. ${b.name}' : b.name,
+                        ),
+                        selected: selected,
+                        onSelected: _activating ? null : (_) => _toggleBranch(b),
+                        selectedColor: QueueTheme.amber.withOpacity(0.25),
+                        checkmarkColor: QueueTheme.amber,
+                      );
+                    }).toList(),
+                  ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Text(_error!, style: const TextStyle(color: QueueTheme.red)),

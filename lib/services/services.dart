@@ -336,15 +336,34 @@ class ApiService {
         .toList();
   }
 
-  Future<ActivateResult> activate(String displayId) async {
+  Future<ActivateResult> activate(String displayId, {List<String>? branchIds}) async {
+    final body = branchIds != null && branchIds.isNotEmpty
+        ? jsonEncode({'branch_ids': branchIds})
+        : null;
+    final headers = {
+      ..._headers(),
+      if (body != null) 'Content-Type': 'application/json',
+    };
+
     final data = _unwrap(await ApiHttp
         .post(
           Uri.parse('$baseUrl/api/v1/tv/displays/$displayId/activate'),
-          headers: _headers(),
+          headers: headers,
+          body: body,
         )
         .timeout(_timeout)) as Map<String, dynamic>;
 
     return ActivateResult.fromJson(data);
+  }
+
+  Future<List<TvBranch>> getBranches() async {
+    final data = _unwrap(await ApiHttp
+        .get(Uri.parse('$baseUrl/api/v1/kiosk/branches'), headers: _headers())
+        .timeout(_timeout)) as Map<String, dynamic>;
+
+    return (data['branches'] as List)
+        .map((e) => TvBranch.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<QueueState> getQueue(String token) async {
@@ -358,6 +377,54 @@ class ApiService {
     return QueueState.fromJson(data);
   }
 
+  Future<DisplayConfig> getDisplayConfig(String token) async {
+    final data = _unwrap(await ApiHttp
+        .get(
+          Uri.parse('$baseUrl/api/v1/display/config'),
+          headers: _headers(token),
+        )
+        .timeout(_timeout)) as Map<String, dynamic>;
+
+    return DisplayConfig.fromJson(data);
+  }
+
+  Future<DisplayState> getDisplayState(String token) async {
+    final data = _unwrap(await ApiHttp
+        .get(
+          Uri.parse('$baseUrl/api/v1/display/state'),
+          headers: _headers(token),
+        )
+        .timeout(_timeout)) as Map<String, dynamic>;
+
+    return DisplayState.fromJson(data);
+  }
+
+  Future<List<int>> fetchAnnounceAudio(
+    String token,
+    String code, {
+    int? counter,
+  }) async {
+    final params = {'code': code};
+    if (counter != null) params['counter'] = counter.toString();
+
+    final uri = Uri.parse('$baseUrl/api/v1/display/announce').replace(
+      queryParameters: params,
+    );
+
+    final r = await ApiHttp
+        .get(uri, headers: {
+          ..._headers(token),
+          'Accept': 'audio/mpeg',
+        })
+        .timeout(const Duration(seconds: 30));
+
+    if (r.statusCode >= 400) {
+      throw HttpException('announce HTTP ${r.statusCode}');
+    }
+
+    return r.bodyBytes;
+  }
+
   Future<DisplayTemplate> getTemplate(String templateId) async {
     final r = await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/templates/$templateId'), headers: _headers())
@@ -367,11 +434,14 @@ class ApiService {
     return DisplayTemplate.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
 
-  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId, String displayId, String apiHost})>
+  Future<({DisplayTemplate template, QueueState queue, ReverbConfig reverb, String tenantId, String branchId, List<String> branchIds, String displayId, String apiHost})>
       bootstrap(String token) async {
     final data = _unwrap(await ApiHttp
         .get(Uri.parse('$baseUrl/api/v1/tv/bootstrap'), headers: _headers(token))
         .timeout(_timeout)) as Map<String, dynamic>;
+
+    final rawIds = data['branch_ids'] as List? ?? [];
+    final branchIds = rawIds.map((e) => e.toString()).toList();
 
     return (
       template: DisplayTemplate.fromJson(data['template']),
@@ -379,6 +449,7 @@ class ApiService {
       reverb: ReverbConfig.fromJson(data['reverb']),
       tenantId: data['tenant_id']?.toString() ?? '',
       branchId: data['branch_id']?.toString() ?? '',
+      branchIds: branchIds,
       displayId: data['display_id']?.toString() ?? '',
       apiHost: data['api_host']?.toString() ?? '',
     );
@@ -391,6 +462,7 @@ class StorageService {
   static const _kToken = 'display_token';
   static const _kTemplateId = 'template_id';
   static const _kBranchId = 'branch_id';
+  static const _kBranchIds = 'branch_ids';
   static const _kTenantId = 'tenant_id';
   static const _kApiHost = 'api_host';
 
@@ -401,6 +473,11 @@ class StorageService {
     await p.setString(_kToken, result.token);
     await p.setString(_kTemplateId, result.templateId);
     await p.setString(_kBranchId, result.branchId);
+    if (result.branchIds.isNotEmpty) {
+      await p.setStringList(_kBranchIds, result.branchIds);
+    } else {
+      await p.remove(_kBranchIds);
+    }
     await p.setString(_kTenantId, result.tenantId);
     if (result.apiHost.isNotEmpty) {
       await p.setString(_kApiHost, result.apiHost);
@@ -415,6 +492,7 @@ class StorageService {
       'token': p.getString(_kToken),
       'template_id': p.getString(_kTemplateId),
       'branch_id': p.getString(_kBranchId),
+      'branch_ids': p.getStringList(_kBranchIds)?.join(','),
       'tenant_id': p.getString(_kTenantId),
       'api_host': p.getString(_kApiHost),
     };
@@ -427,6 +505,7 @@ class StorageService {
     await p.remove(_kToken);
     await p.remove(_kTemplateId);
     await p.remove(_kBranchId);
+    await p.remove(_kBranchIds);
     await p.remove(_kTenantId);
     await p.remove(_kApiHost);
   }

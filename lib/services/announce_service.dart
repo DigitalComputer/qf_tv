@@ -1,9 +1,20 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
-/// Portuguese ticket announcements via espeak-ng (Linux TV kiosk).
+import 'services.dart';
+
+/// Portuguese ticket announcements — API neural MP3 (same as qf_screen) + espeak fallback.
 class AnnounceService {
+  AnnounceService({required ApiService api, required String token})
+      : _api = api,
+        _token = token;
+
+  final ApiService _api;
+  final String _token;
+  final AudioPlayer _player = AudioPlayer();
   bool _ready = false;
   bool _speaking = false;
   final List<Future<void> Function()> _queue = [];
@@ -59,6 +70,7 @@ class AnnounceService {
 
   Future<void> init() async {
     if (_ready) return;
+    await _player.setReleaseMode(ReleaseMode.stop);
     if (Platform.isLinux) {
       final which = await Process.run('which', ['espeak-ng']);
       if (which.exitCode != 0) {
@@ -68,14 +80,43 @@ class AnnounceService {
     _ready = true;
   }
 
-  Future<void> announceTicket(String displayCode, {String? counterLabel}) async {
+  Future<void> announceTicket(
+    String displayCode, {
+    int? counterNumber,
+    String? counterLabel,
+  }) async {
     if (displayCode.isEmpty) return;
+    final digits = displayCode.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return;
+
     await init();
 
-    _queue.add(() => _speakTicket(displayCode, counterLabel: counterLabel));
+    _queue.add(() => _announce(displayCode, counterNumber: counterNumber, counterLabel: counterLabel));
     if (!_speaking) {
       await _drainQueue();
     }
+  }
+
+  Future<void> _announce(
+    String code, {
+    int? counterNumber,
+    String? counterLabel,
+  }) async {
+    try {
+      final bytes = await _api.fetchAnnounceAudio(_token, code, counter: counterNumber);
+      await _playBytes(bytes);
+      return;
+    } catch (e) {
+      debugPrint('qf_tv API announce failed, espeak fallback: $e');
+    }
+
+    await _speakTicketEspeak(code, counterLabel: counterLabel);
+  }
+
+  Future<void> _playBytes(List<int> bytes) async {
+    await _player.stop();
+    await _player.play(BytesSource(Uint8List.fromList(bytes)), volume: 1.0);
+    await _player.onPlayerComplete.first;
   }
 
   Future<void> _drainQueue() async {
@@ -92,16 +133,16 @@ class AnnounceService {
     _speaking = false;
   }
 
-  Future<void> _speakTicket(String code, {String? counterLabel}) async {
-    await _speak('Atenção.');
-    await _speak('Senha. ${_spellCode(code)}.');
-    await _speak(_spellCode(code));
+  Future<void> _speakTicketEspeak(String code, {String? counterLabel}) async {
+    await _speakEspeak('Atenção.');
+    await _speakEspeak('Senha. ${_spellCode(code)}.');
+    await _speakEspeak(_spellCode(code));
     if (counterLabel != null && counterLabel.isNotEmpty) {
-      await _speak('Por favor, dirija-se ao $counterLabel.');
+      await _speakEspeak('Por favor, dirija-se ao $counterLabel.');
     }
   }
 
-  Future<void> _speak(String text) async {
+  Future<void> _speakEspeak(String text) async {
     if (!Platform.isLinux) return;
     await Process.run(
       'espeak-ng',
@@ -114,10 +155,18 @@ class AnnounceService {
     return code.split('').map((c) => _digitPt[c] ?? c).join('  ');
   }
 
-  static String? counterNumberFromName(String? counterName) {
+  static int? counterNumberFromPayload(Map<String, dynamic>? payload) {
+    if (payload == null) return null;
+    final raw = payload['counter_number'];
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw);
+    return counterNumberFromName(payload['counter_name']?.toString());
+  }
+
+  static int? counterNumberFromName(String? counterName) {
     if (counterName == null || counterName.isEmpty) return null;
     final match = RegExp(r'\d+').firstMatch(counterName);
-    return match?.group(0);
+    return int.tryParse(match?.group(0) ?? '');
   }
 
   static String counterPhrase(String? counterName) {
@@ -126,10 +175,7 @@ class AnnounceService {
     }
     final numStr = counterNumberFromName(counterName);
     if (numStr != null) {
-      final n = int.tryParse(numStr);
-      if (n != null) {
-        return 'balcão número ${_numberPt(n)}';
-      }
+      return 'balcão número ${_numberPt(numStr)}';
     }
     return counterName;
   }
@@ -144,9 +190,15 @@ class AnnounceService {
 
   Future<void> stop() async {
     _queue.clear();
+    await _player.stop();
     if (Platform.isLinux) {
       await Process.run('pkill', ['-x', 'espeak-ng']);
     }
     _speaking = false;
+  }
+
+  Future<void> dispose() async {
+    await stop();
+    await _player.dispose();
   }
 }

@@ -93,15 +93,31 @@ class CallingZone extends StatelessWidget {
                     ]
                   : null,
             ),
-            child: Text(
-              t.ticketCode,
-              style: GoogleFonts.spaceMono(
-                fontSize: s.ticketFontSize,
-                fontWeight: FontWeight.w700,
-                color: s.accentColor,
-                letterSpacing: 8,
-                height: 1.0,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  t.ticketCode,
+                  style: GoogleFonts.spaceMono(
+                    fontSize: s.ticketFontSize,
+                    fontWeight: FontWeight.w700,
+                    color: s.accentColor,
+                    letterSpacing: 8,
+                    height: 1.0,
+                  ),
+                ),
+                if (t.branchName.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    t.branchName,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: (s.fontSize * 0.55).clamp(14, 20).toDouble(),
+                      color: s.textColor.withOpacity(0.55),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -321,14 +337,27 @@ class TicketRow extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                 ],
-                Text(
-                  ticket.ticketCode,
-                  style: GoogleFonts.spaceMono(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                    letterSpacing: 2,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ticket.ticketCode,
+                      style: GoogleFonts.spaceMono(
+                        fontSize: fontSize,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    if (ticket.branchName.isNotEmpty)
+                      Text(
+                        ticket.branchName,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 10,
+                          color: textColor.withOpacity(0.45),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),

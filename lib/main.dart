@@ -66,6 +66,11 @@ class _BootScreenState extends State<_BootScreen> {
     final token = session['token'];
     final displayName = session['display_name'];
     final apiHost = session['api_host'];
+    final savedBranchIds = session['branch_ids']
+            ?.split(',')
+            .where((id) => id.isNotEmpty)
+            .toList() ??
+        const <String>[];
 
     if (displayId == null || token == null || displayName == null) {
       return const DisplayPickerScreen();
@@ -87,6 +92,7 @@ class _BootScreenState extends State<_BootScreen> {
           displayId: boot.displayId.isNotEmpty ? boot.displayId : displayId,
           displayName: displayName,
           branchId: boot.branchId,
+          branchIds: boot.branchIds.isNotEmpty ? boot.branchIds : savedBranchIds,
           templateId: boot.template.id,
           token: token,
           tenantId: boot.tenantId,
@@ -100,6 +106,7 @@ class _BootScreenState extends State<_BootScreen> {
           displayId: displayId,
           displayName: displayName,
           branchId: session['branch_id'] ?? '',
+          branchIds: savedBranchIds,
           templateId: session['template_id'] ?? '',
           token: token,
           tenantId: session['tenant_id'] ?? '',

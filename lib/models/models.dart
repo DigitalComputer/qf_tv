@@ -1,5 +1,30 @@
 import 'dart:ui';
 
+// ── Branch (multi-unidade picker) ─────────────────────────────
+
+class TvBranch {
+  final String id;
+  final String name;
+  final String address;
+  final List<String> serviceCodes;
+
+  TvBranch({
+    required this.id,
+    required this.name,
+    this.address = '',
+    this.serviceCodes = const [],
+  });
+
+  factory TvBranch.fromJson(Map<String, dynamic> j) => TvBranch(
+        id: j['id']?.toString() ?? '',
+        name: j['name'] ?? '',
+        address: j['address']?.toString() ?? '',
+        serviceCodes: (j['service_codes'] as List? ?? [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+}
+
 // ── Display (picker) ──────────────────────────────────────────
 
 class TvDisplay {
@@ -42,12 +67,14 @@ class QueueTicket {
   final String serviceType;
   final String counterName;
   final String status;
+  final String branchName;
 
   QueueTicket({
     required this.ticketCode,
     required this.serviceType,
     required this.counterName,
     required this.status,
+    this.branchName = '',
   });
 
   factory QueueTicket.fromJson(Map<String, dynamic> j) => QueueTicket(
@@ -55,6 +82,7 @@ class QueueTicket {
         serviceType: j['service_type'] ?? '',
         counterName: j['counter_name'] ?? '',
         status: j['status'] ?? 'waiting',
+        branchName: j['branch_name']?.toString() ?? '',
       );
 }
 
@@ -99,6 +127,132 @@ class QueueState {
       );
 }
 
+// ── Web display API (qf_screen parity) ──────────────────────
+
+class TvMediaItem {
+  final String id;
+  final String? title;
+  final String kind;
+  final String? url;
+  final int durationSeconds;
+  final int orderIndex;
+
+  TvMediaItem({
+    required this.id,
+    this.title,
+    required this.kind,
+    this.url,
+    this.durationSeconds = 10,
+    this.orderIndex = 0,
+  });
+
+  factory TvMediaItem.fromJson(Map<String, dynamic> j) => TvMediaItem(
+        id: j['id']?.toString() ?? '',
+        title: j['title']?.toString(),
+        kind: j['kind']?.toString() ?? 'image',
+        url: j['url']?.toString(),
+        durationSeconds: (j['duration_seconds'] as num?)?.toInt() ?? 10,
+        orderIndex: (j['order_index'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class TvTickerMessage {
+  final String id;
+  final String body;
+  final String kind;
+  final int orderIndex;
+
+  TvTickerMessage({
+    required this.id,
+    required this.body,
+    required this.kind,
+    this.orderIndex = 0,
+  });
+
+  factory TvTickerMessage.fromJson(Map<String, dynamic> j) => TvTickerMessage(
+        id: j['id']?.toString() ?? '',
+        body: j['body']?.toString() ?? '',
+        kind: j['kind']?.toString() ?? 'custom',
+        orderIndex: (j['order_index'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class DisplayConfig {
+  final String tenantId;
+  final String branchId;
+  final List<String> branchIds;
+  final String displayId;
+  final String layout;
+  final bool ttsEnabled;
+  final List<TvMediaItem> mediaItems;
+  final List<TvTickerMessage> tickerMessages;
+  final ReverbConfig reverb;
+
+  DisplayConfig({
+    required this.tenantId,
+    required this.branchId,
+    this.branchIds = const [],
+    required this.displayId,
+    required this.layout,
+    this.ttsEnabled = true,
+    this.mediaItems = const [],
+    this.tickerMessages = const [],
+    required this.reverb,
+  });
+
+  List<String> get effectiveBranchIds =>
+      branchIds.isNotEmpty ? branchIds : (branchId.isNotEmpty ? [branchId] : []);
+
+  factory DisplayConfig.fromJson(Map<String, dynamic> j) {
+    final rawIds = j['branch_ids'] as List? ?? [];
+    return DisplayConfig(
+      tenantId: j['tenant_id']?.toString() ?? '',
+      branchId: j['branch_id']?.toString() ?? '',
+      branchIds: rawIds.map((e) => e.toString()).toList(),
+      displayId: j['display_id']?.toString() ?? '',
+      layout: j['layout']?.toString() ?? 'split',
+      ttsEnabled: j['tts_enabled'] != false,
+      mediaItems: (j['media_items'] as List? ?? [])
+          .map((e) => TvMediaItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      tickerMessages: (j['ticker_messages'] as List? ?? [])
+          .map((e) => TvTickerMessage.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      reverb: ReverbConfig.fromJson(j['reverb'] ?? {}),
+    );
+  }
+}
+
+class DisplayState {
+  final String tenantId;
+  final QueueTicket? nowCalling;
+  final List<QueueTicket> nowServing;
+  final List<QueueTicket> waitingNext;
+  final int totalWaiting;
+
+  DisplayState({
+    required this.tenantId,
+    this.nowCalling,
+    required this.nowServing,
+    required this.waitingNext,
+    required this.totalWaiting,
+  });
+
+  factory DisplayState.fromJson(Map<String, dynamic> j) => DisplayState(
+        tenantId: j['tenant_id']?.toString() ?? '',
+        nowCalling: j['now_calling'] != null
+            ? QueueTicket.fromJson(j['now_calling'] as Map<String, dynamic>)
+            : null,
+        nowServing: (j['now_serving'] as List? ?? [])
+            .map((e) => QueueTicket.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        waitingNext: (j['waiting_next'] as List? ?? [])
+            .map((e) => QueueTicket.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        totalWaiting: (j['total_waiting'] as num?)?.toInt() ?? 0,
+      );
+}
+
 // ── Reverb config ─────────────────────────────────────────────
 
 class ReverbConfig {
@@ -129,6 +283,7 @@ class ActivateResult {
   final String displayId;
   final String displayName;
   final String branchId;
+  final List<String> branchIds;
   final String templateId;
   final String token;
   final String tenantId;
@@ -139,6 +294,7 @@ class ActivateResult {
     required this.displayId,
     required this.displayName,
     required this.branchId,
+    this.branchIds = const [],
     required this.templateId,
     required this.token,
     required this.tenantId,
@@ -146,16 +302,27 @@ class ActivateResult {
     required this.reverb,
   });
 
-  factory ActivateResult.fromJson(Map<String, dynamic> j) => ActivateResult(
-        displayId: j['display_id']?.toString() ?? '',
-        displayName: j['display_name'] ?? '',
-        branchId: j['branch_id']?.toString() ?? '',
-        templateId: j['template_id']?.toString() ?? '',
-        token: j['token'] ?? '',
-        tenantId: j['tenant_id']?.toString() ?? '',
-        apiHost: j['api_host']?.toString() ?? '',
-        reverb: ReverbConfig.fromJson(j['reverb'] ?? {}),
-      );
+  List<String> get effectiveBranchIds =>
+      branchIds.isNotEmpty ? branchIds : (branchId.isNotEmpty ? [branchId] : []);
+
+  bool get isMultiBranch => effectiveBranchIds.length > 1;
+
+  factory ActivateResult.fromJson(Map<String, dynamic> j) {
+    final rawIds = j['branch_ids'] as List? ?? [];
+    final branchIds = rawIds.map((e) => e.toString()).toList();
+
+    return ActivateResult(
+      displayId: j['display_id']?.toString() ?? '',
+      displayName: j['display_name'] ?? '',
+      branchId: j['branch_id']?.toString() ?? '',
+      branchIds: branchIds,
+      templateId: j['template_id']?.toString() ?? '',
+      token: j['token'] ?? '',
+      tenantId: j['tenant_id']?.toString() ?? '',
+      apiHost: j['api_host']?.toString() ?? '',
+      reverb: ReverbConfig.fromJson(j['reverb'] ?? {}),
+    );
+  }
 }
 
 // ── Template ──────────────────────────────────────────────────
