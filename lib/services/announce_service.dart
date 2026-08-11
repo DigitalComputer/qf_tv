@@ -145,7 +145,20 @@ class AnnounceService {
     int? counterNumber,
     String? counterLabel,
   }) async {
-    // Linux TV box: local Kokoro TTS (natural pt-BR on analog jack).
+    // 1) Fast path: server neural MP3 (edge-tts, cached) — ~2-5s, zero local
+    // CPU load. Was previously the 3rd fallback behind local Kokoro whose
+    // inference takes 30-120s on the weak box CPU and froze the UI.
+    try {
+      final bytes = await _api
+          .fetchAnnounceAudio(_token, code, counter: counterNumber, counterLabel: counterLabel)
+          .timeout(const Duration(seconds: 12));
+      if (_isValidMp3(bytes) && await _playBytes(bytes)) return;
+      debugPrint('qf_tv API MP3 unplayable — Kokoro fallback');
+    } catch (e) {
+      debugPrint('qf_tv API MP3 failed — Kokoro fallback: $e');
+    }
+
+    // 2) Local Kokoro TTS (natural pt-BR, offline).
     if (Platform.isLinux && KokoroService.enabledOnLinux()) {
       _kokoroReachable ??= await _kokoro.isReachable();
       // A transient outage (e.g. TTS service restarting, corrupt model being
@@ -164,26 +177,16 @@ class AnnounceService {
           counterLabel: counterLabel ?? counterPhrase(null),
         );
         if (await _kokoro.speak(text)) return;
-        debugPrint('qf_tv Kokoro speak failed — trying API MP3');
+        debugPrint('qf_tv Kokoro speak failed — espeak fallback');
         // Model/service broken (e.g. corrupt ONNX): stop retrying every
-        // announce — degrades to neural API MP3, not per-call 300MB reload.
+        // announce — degrades to espeak, not per-call 300MB reload.
         // Re-probe kicks in after [kokoroReProbeEvery].
         _kokoroReachable = false;
         _lastKokoroProbe = DateTime.now();
       }
     }
 
-    try {
-      final bytes = await _api.fetchAnnounceAudio(_token, code, counter: counterNumber);
-      if (!_isValidMp3(bytes)) {
-        throw FormatException('announce response not MP3 (${bytes.length} bytes)');
-      }
-      if (await _playBytes(bytes)) return;
-      debugPrint('qf_tv neural MP3 playback failed — espeak fallback');
-    } catch (e) {
-      debugPrint('qf_tv API announce failed — espeak fallback: $e');
-    }
-
+    // 3) Last resort: espeak.
     await _speakTicketEspeak(code, counterLabel: counterLabel);
   }
 

@@ -69,11 +69,12 @@ class CallingZone extends StatelessWidget {
     );
   }
 
-  Widget _ticketCard(QueueTicket t, ZoneStyle s) => AnimatedBuilder(
-        animation: flashAnim,
-        builder: (_, __) => AnimatedBuilder(
-          animation: pulseAnim,
-          builder: (_, __) => Container(
+  Widget _ticketCard(QueueTicket t, ZoneStyle s) => RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: flashAnim,
+          builder: (_, __) => AnimatedBuilder(
+            animation: pulseAnim,
+            builder: (_, __) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 28),
             decoration: BoxDecoration(
               color: s.accentColor.withOpacity(0.06 + pulseAnim.value * 0.04),
@@ -120,6 +121,7 @@ class CallingZone extends StatelessWidget {
               ],
             ),
           ),
+        ),
         ),
       );
 

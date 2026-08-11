@@ -403,9 +403,13 @@ class ApiService {
     String token,
     String code, {
     int? counter,
+    String? counterLabel,
   }) async {
     final params = {'code': code};
     if (counter != null) params['counter'] = counter.toString();
+    if (counterLabel != null && counterLabel.isNotEmpty) {
+      params['counter_label'] = counterLabel;
+    }
 
     final uri = Uri.parse('$baseUrl/api/v1/display/announce').replace(
       queryParameters: params,

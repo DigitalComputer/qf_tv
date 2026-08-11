@@ -261,9 +261,10 @@ class _ZoneAState extends State<_ZoneA> with SingleTickerProviderStateMixin {
           ),
           Center(
             child: widget.displayCode != null && widget.displayCode!.isNotEmpty
-                ? AnimatedBuilder(
-                    animation: _pulse,
-                    builder: (_, __) {
+                ? RepaintBoundary(
+                    child: AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (_, __) {
                       final glow = widget.isCalling ? 12 + _pulse.value * 12 : 0.0;
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
@@ -293,7 +294,8 @@ class _ZoneAState extends State<_ZoneA> with SingleTickerProviderStateMixin {
                           ),
                         ),
                       );
-                    },
+                      },
+                    ),
                   )
                 : Text(
                     'Aguarde a próxima chamada',
@@ -609,28 +611,30 @@ class _ZoneDState extends State<_ZoneD> with SingleTickerProviderStateMixin {
       return const ColoredBox(color: WebDisplayColors.brandBlack);
     }
 
-    return ColoredBox(
-      color: WebDisplayColors.brandBlack,
-      child: ClipRect(
-        child: AnimatedBuilder(
-          animation: _scroll,
-          builder: (context, child) {
-            return FractionalTranslation(
-              translation: Offset(1 - _scroll.value * 2, 0),
-              child: child,
-            );
-          },
-          child: Row(
-            children: [
-              Text(
-                '$text      $text',
-                style: GoogleFonts.inter(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: WebDisplayColors.brandGold,
+    return RepaintBoundary(
+      child: ColoredBox(
+        color: WebDisplayColors.brandBlack,
+        child: ClipRect(
+          child: AnimatedBuilder(
+            animation: _scroll,
+            builder: (context, child) {
+              return FractionalTranslation(
+                translation: Offset(1 - _scroll.value * 2, 0),
+                child: child,
+              );
+            },
+            child: Row(
+              children: [
+                Text(
+                  '$text      $text',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: WebDisplayColors.brandGold,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
