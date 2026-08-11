@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -9,6 +10,10 @@ import 'services.dart';
 import 'tts_formatter.dart';
 
 /// Portuguese ticket announcements — Kokoro (TV-local) → API MP3 → espeak fallback.
+///
+/// ALL announces flow through ONE FIFO serial worker ([_enqueue]) so multiple
+/// operators calling different filas at the same time NEVER overlap — each
+/// senha plays to completion, then the next queued announce plays.
 class AnnounceService {
   AnnounceService({required ApiService api, required String token})
       : _api = api,
@@ -20,22 +25,20 @@ class AnnounceService {
   final KokoroService _kokoro;
   final AudioPlayer _player = AudioPlayer();
   bool _ready = false;
-  bool _speaking = false;
   bool? _kokoroReachable;
   DateTime? _lastKokoroProbe;
   static const kokoroReProbeEvery = Duration(seconds: 30);
-  final List<Future<void> Function()> _queue = [];
 
-  /// Gap between announce plays while call active. User wants snappy repeat
-  /// (~2s), not the old 10s — combined with a ~5s phrase this yields a
-  /// repeat roughly every 7s instead of the previous 60s+ kokoro wait.
-  static const repeatPause = Duration(seconds: 2);
+  /// Gap between announce repeats while a call is active (user: 4s).
+  static const repeatPause = Duration(seconds: 4);
 
-  bool _callingLoopActive = false;
-  String? _callingLoopCode;
-  int? _callingLoopCounterNumber;
-  String? _callingLoopCounterLabel;
-  int _callingLoopGeneration = 0;
+  /// FIFO serial announce queue — guarantees one voice at a time.
+  final List<Future<void> Function()> _jobQueue = [];
+  bool _workerRunning = false;
+
+  /// Per-ticket calling loops (keyed by display code).
+  final Map<String, int> _loopGenerations = {};
+  final Set<String> _activeLoops = {};
 
   Future<void> init() async {
     if (_ready) return;
@@ -59,7 +62,36 @@ class AnnounceService {
     return bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0; // MPEG sync
   }
 
-  /// Repeat announce every [repeatPause] until [stopCallingLoop].
+  /// Enqueue an announce job on the serial worker and wait for ITS completion.
+  Future<void> _enqueue(Future<void> Function() job) {
+    final completer = Completer<void>();
+    _jobQueue.add(() async {
+      try {
+        await job();
+      } finally {
+        if (!completer.isCompleted) completer.complete();
+      }
+    });
+    _pumpQueue();
+    return completer.future;
+  }
+
+  void _pumpQueue() async {
+    if (_workerRunning) return;
+    _workerRunning = true;
+    while (_jobQueue.isNotEmpty) {
+      final job = _jobQueue.removeAt(0);
+      try {
+        await job();
+      } catch (e) {
+        debugPrint('qf_tv announce job error: $e');
+      }
+    }
+    _workerRunning = false;
+  }
+
+  /// Repeat announce every [repeatPause] until [stopCallingLoop] for this code.
+  /// Multiple codes can loop concurrently — they interleave through the queue.
   Future<void> startCallingLoop(
     String displayCode, {
     int? counterNumber,
@@ -71,53 +103,60 @@ class AnnounceService {
 
     await init();
 
-    if (_callingLoopActive && _callingLoopCode == displayCode) return;
-
-    await stopCallingLoop();
-
-    _callingLoopCode = displayCode;
-    _callingLoopCounterNumber = counterNumber;
-    _callingLoopCounterLabel = counterLabel;
-    _callingLoopActive = true;
-    final generation = ++_callingLoopGeneration;
-    _runCallingLoop(generation);
+    if (_activeLoops.contains(displayCode)) return;
+    _activeLoops.add(displayCode);
+    final generation = (_loopGenerations[displayCode] ?? 0) + 1;
+    _loopGenerations[displayCode] = generation;
+    _runCallingLoop(generation, displayCode,
+        counterNumber: counterNumber, counterLabel: counterLabel);
   }
 
-  Future<void> stopCallingLoop() async {
-    _callingLoopGeneration++;
-    _callingLoopActive = false;
-    _callingLoopCode = null;
-    _callingLoopCounterNumber = null;
-    _callingLoopCounterLabel = null;
+  /// Stop the calling loop for [code]. With no code, stop ALL loops + audio.
+  Future<void> stopCallingLoop([String? code]) async {
+    if (code != null && code.isNotEmpty) {
+      _loopGenerations[code] = (_loopGenerations[code] ?? 0) + 1;
+      _activeLoops.remove(code);
+      return;
+    }
+    for (final c in _activeLoops.toList()) {
+      _loopGenerations[c] = (_loopGenerations[c] ?? 0) + 1;
+      _activeLoops.remove(c);
+    }
+    _jobQueue.clear();
     await stop();
   }
 
-  Future<void> _runCallingLoop(int generation) async {
+  Future<void> _runCallingLoop(
+    int generation,
+    String displayCode, {
+    int? counterNumber,
+    String? counterLabel,
+  }) async {
     while (
-      _callingLoopActive &&
-      generation == _callingLoopGeneration &&
-      _callingLoopCode != null
+      _activeLoops.contains(displayCode) &&
+      _loopGenerations[displayCode] == generation
     ) {
-      final code = _callingLoopCode!;
-      final counterNumber = _callingLoopCounterNumber;
-      final counterLabel = _callingLoopCounterLabel;
-
       try {
-        await _announce(
-          code,
-          counterNumber: counterNumber,
-          counterLabel: counterLabel,
-        );
+        // Awaits ITS OWN announce — the serial worker drains other tickets'
+        // announces between this ticket's repeats (FIFO, never overlapping).
+        await _enqueue(() => _announce(
+              displayCode,
+              counterNumber: counterNumber,
+              counterLabel: counterLabel,
+            ));
       } catch (e) {
         debugPrint('qf_tv calling loop announce error: $e');
       }
 
-      if (!_callingLoopActive || generation != _callingLoopGeneration) break;
+      if (!_activeLoops.contains(displayCode) ||
+          _loopGenerations[displayCode] != generation) {
+        break;
+      }
 
       final pauseUntil = DateTime.now().add(repeatPause);
       while (
-        _callingLoopActive &&
-        generation == _callingLoopGeneration &&
+        _activeLoops.contains(displayCode) &&
+        _loopGenerations[displayCode] == generation &&
         DateTime.now().isBefore(pauseUntil)
       ) {
         await Future.delayed(const Duration(milliseconds: 250));
@@ -136,10 +175,7 @@ class AnnounceService {
 
     await init();
 
-    _queue.add(() => _announce(displayCode, counterNumber: counterNumber, counterLabel: counterLabel));
-    if (!_speaking) {
-      await _drainQueue();
-    }
+    await _enqueue(() => _announce(displayCode, counterNumber: counterNumber, counterLabel: counterLabel));
   }
 
   Future<void> _announce(
@@ -218,20 +254,6 @@ class AnnounceService {
     }
   }
 
-  Future<void> _drainQueue() async {
-    if (_speaking) return;
-    _speaking = true;
-    while (_queue.isNotEmpty) {
-      final job = _queue.removeAt(0);
-      try {
-        await job();
-      } catch (e) {
-        debugPrint('qf_tv TTS error: $e');
-      }
-    }
-    _speaking = false;
-  }
-
   Future<void> _speakTicketEspeak(String code, {String? counterLabel}) async {
     await _speakEspeak('Senha. ${TtsFormatter.spellCode(code)}.');
     if (counterLabel != null && counterLabel.isNotEmpty) {
@@ -270,9 +292,11 @@ class AnnounceService {
   }
 
   Future<void> stop() async {
-    _callingLoopGeneration++;
-    _callingLoopActive = false;
-    _queue.clear();
+    for (final c in _activeLoops.toList()) {
+      _loopGenerations[c] = (_loopGenerations[c] ?? 0) + 1;
+      _activeLoops.remove(c);
+    }
+    _jobQueue.clear();
     await _player.stop();
     if (Platform.isLinux) {
       if (KokoroService.enabledOnLinux()) {
@@ -280,7 +304,6 @@ class AnnounceService {
       }
       await Process.run('pkill', ['-x', 'espeak-ng']);
     }
-    _speaking = false;
   }
 
   Future<void> dispose() async {

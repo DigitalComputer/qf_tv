@@ -172,9 +172,20 @@ class _DisplayScreenState extends State<DisplayScreen> {
       if (code.isNotEmpty && (_config?.ttsEnabled ?? true)) {
         _startCallingAnnounce(code, counterNumber: ctrNum, counterName: ctr);
       }
-    } else if (event == 'ticket.served' || event == 'ticket.completed') {
-      _stopCallingAnnounce();
-      if (mounted) setState(() => _isCalling = false);
+    } else if (event == 'ticket.served' ||
+        event == 'ticket.completed' ||
+        event == 'ticket.no_show') {
+      final code = payload?['display_code']?.toString() ??
+          payload?['ticket_number']?.toString() ??
+          '';
+      // Stop only THAT ticket's calling loop; other tickets' loops keep
+      // their turn in the serial announce queue.
+      _stopCallingAnnounce(code.isEmpty ? null : code);
+      if (mounted &&
+          (code.isEmpty || code == _displayCode) &&
+          _isCalling) {
+        setState(() => _isCalling = false);
+      }
     }
 
     _scheduleRefresh();
@@ -243,8 +254,8 @@ class _DisplayScreenState extends State<DisplayScreen> {
     );
   }
 
-  void _stopCallingAnnounce() {
-    _announce?.stopCallingLoop();
+  void _stopCallingAnnounce([String? code]) {
+    _announce?.stopCallingLoop(code);
   }
 
   void _syncCallingAnnounce(DisplayState state) {

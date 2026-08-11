@@ -35,11 +35,12 @@ def _lang() -> str:
 
 
 def _speed() -> float:
-    # 0.88 reads more natural than 1.0 for PT ticket announcements.
+    # 1.05 = a little faster than natural (user preference; 1.0 was natural,
+    # 0.88 was too slow).
     try:
-        return float(os.environ.get("TTS_SPEED", "0.88"))
+        return float(os.environ.get("TTS_SPEED", "1.05"))
     except ValueError:
-        return 0.88
+        return 1.05
 
 
 def _gain() -> float:
