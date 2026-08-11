@@ -23,6 +23,21 @@ class SpeakRequest(BaseModel):
 
 @app.get("/health")
 def health():
+    # Fail fast if model files are missing/corrupt so the TV app stops
+    # attempting Kokoro and falls back to the neural API MP3 path.
+    # kokoro-v1.0.onnx ~310MB, voices-v1.0.bin ~24MB.
+    from tts_engine import _model_dir  # noqa: PLC0415
+
+    for fname, min_size in (
+        ("kokoro-v1.0.onnx", 300_000_000),
+        ("voices-v1.0.bin", 20_000_000),
+    ):
+        path = _model_dir() / fname
+        if not path.is_file() or path.stat().st_size < min_size:
+            raise HTTPException(
+                status_code=503,
+                detail=f"{fname} missing or corrupt (health)",
+            )
     return {"status": "ok", "voice": os.environ.get("TTS_VOICE", "pf_dora")}
 
 

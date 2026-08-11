@@ -129,17 +129,26 @@ rm -rf "${INSTALL_DIR}/venv"
 
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "$INSTALL_DIR"
 
-log "Kokoro ONNX model files (~300MB total, skip if cached)"
+log "Kokoro ONNX model files (~310MB + ~24MB; corrupt cached files re-downloaded)"
 MODEL_DIR="${INSTALL_DIR}/models"
 mkdir -p "$MODEL_DIR"
-for f in kokoro-v1.0.onnx voices-v1.0.bin; do
-  if [[ ! -s "${MODEL_DIR}/${f}" ]]; then
+# Size thresholds catch partial/corrupt downloads that "-s" alone misses.
+model_ok() {
+  local f="$1" min="$2"
+  [[ -s "${MODEL_DIR}/${f}" ]] || return 1
+  [[ "$(stat -c%s "${MODEL_DIR}/${f}")" -ge "$min" ]]
+}
+for spec in "kokoro-v1.0.onnx:300000000" "voices-v1.0.bin:20000000"; do
+  f="${spec%%:*}"
+  min="${spec##*:}"
+  if model_ok "$f" "$min"; then
+    ok "Cached ${f}"
+  else
+    rm -f "${MODEL_DIR}/${f}"
     curl -fsSL --retry 3 --retry-delay 5 \
       "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/${f}" \
       -o "${MODEL_DIR}/${f}"
     ok "Downloaded ${f}"
-  else
-    ok "Cached ${f}"
   fi
 done
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "$MODEL_DIR"

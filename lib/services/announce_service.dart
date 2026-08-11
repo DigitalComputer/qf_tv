@@ -150,6 +150,9 @@ class AnnounceService {
         final text = TtsFormatter.ticketAnnouncement(code, counterNumber: counterNumber);
         if (await _kokoro.speak(text)) return;
         debugPrint('qf_tv Kokoro speak failed — trying API MP3');
+        // Model/service broken (e.g. corrupt ONNX): stop retrying every
+        // announce — degrades to neural API MP3, not per-call 300MB reload.
+        _kokoroReachable = false;
       }
     }
 
