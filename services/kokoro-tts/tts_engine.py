@@ -100,12 +100,45 @@ def _ensure_models(model_dir: Path) -> tuple[Path, Path]:
     return model_path, voices_path
 
 
+def _patch_onnx_spin_wait() -> None:
+    """Idempotent: kokoro_onnx 0.5.0 builds InferenceSession with default
+    options; ORT's intra-op thread pool then busy-spins (~146% CPU) even when
+    idle, starving the weak TV box. Cap threads and disable spin-wait by
+    patching the installed package. Self-heals after venv reinstalls.
+    """
+    import pathlib
+    import sys
+
+    site = next((p for p in sys.path if p.endswith("site-packages")), None)
+    if not site:
+        return
+    path = pathlib.Path(site) / "kokoro_onnx" / "__init__.py"
+    if not path.is_file():
+        return
+    src = path.read_text()
+    old = "self.sess = rt.InferenceSession(model_path, providers=providers)"
+    if old not in src:
+        return  # already patched or layout changed
+    new = (
+        "        import onnxruntime as rt\n"
+        "        from onnxruntime import SessionOptions\n"
+        "        sess_options = SessionOptions()\n"
+        "        sess_options.intra_op_num_threads = 2\n"
+        "        sess_options.inter_op_num_threads = 1\n"
+        '        sess_options.add_session_config_entry("session.enable_spin_wait", "0")\n'
+        '        sess_options.add_session_config_entry("session.intra_op.allow_spinning", "0")\n'
+        "        self.sess = rt.InferenceSession(model_path, sess_options=sess_options, providers=providers)"
+    )
+    path.write_text(src.replace(old, new))
+
+
 def get_engine():
     """Load Kokoro ONNX engine (downloads model files on first use if needed)."""
     global _engine
     if _engine is not None:
         return _engine
 
+    _patch_onnx_spin_wait()
     from kokoro_onnx import Kokoro
 
     model_path, voices_path = _ensure_models(_model_dir())
