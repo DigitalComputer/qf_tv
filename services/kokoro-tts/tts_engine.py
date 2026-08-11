@@ -42,6 +42,14 @@ def _speed() -> float:
         return 0.88
 
 
+def _gain() -> float:
+    # +10% loudness by default (TV analog jack was too quiet).
+    try:
+        return float(os.environ.get("TTS_GAIN", "1.1"))
+    except ValueError:
+        return 1.1
+
+
 def preprocess_text(text: str) -> str:
     """Make raw text sound more human:
     - spell bare digits in pt-BR ("balcão 1" → "balcão um")
@@ -240,4 +248,7 @@ def speak(text: str) -> None:
     if not text:
         return
     audio, sr = synthesize(text)
+    gain = _gain()
+    if gain != 1.0:
+        audio = np.clip(audio * gain, -1.0, 1.0)
     play_audio(audio, sr)
