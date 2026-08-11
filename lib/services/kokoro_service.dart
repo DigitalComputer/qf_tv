@@ -54,7 +54,7 @@ class KokoroService {
         debugPrint('qf_tv Kokoro TTS submit HTTP ${r.statusCode}: ${r.body}');
         return false;
       }
-      final deadline = DateTime.now().add(const Duration(seconds: 180));
+      final deadline = DateTime.now().add(const Duration(seconds: 300));
       while (DateTime.now().isBefore(deadline)) {
         await Future.delayed(const Duration(milliseconds: 500));
         final s = await http
