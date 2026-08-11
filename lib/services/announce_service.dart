@@ -26,8 +26,10 @@ class AnnounceService {
   static const kokoroReProbeEvery = Duration(seconds: 30);
   final List<Future<void> Function()> _queue = [];
 
-  /// Gap between announce plays while call active (matches qf_screen poll interval).
-  static const repeatPause = Duration(seconds: 10);
+  /// Gap between announce plays while call active. User wants snappy repeat
+  /// (~2s), not the old 10s — combined with a ~5s phrase this yields a
+  /// repeat roughly every 7s instead of the previous 60s+ kokoro wait.
+  static const repeatPause = Duration(seconds: 2);
 
   bool _callingLoopActive = false;
   String? _callingLoopCode;
