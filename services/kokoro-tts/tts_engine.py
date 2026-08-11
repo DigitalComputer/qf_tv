@@ -144,7 +144,7 @@ def stop_playback() -> None:
                 pass
         _playback_proc = None
 
-    subprocess.run(["pkill", "-f", "aplay.*qf_kokoro"], check=False)
+    subprocess.run(["pkill", "-f", "(aplay|paplay).*qf_kokoro"], check=False)
 
 
 def play_audio(audio: np.ndarray, sample_rate: int) -> None:
@@ -162,20 +162,46 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
         sd.wait()
         return
     except Exception as exc:
-        print(f"kokoro-tts: sounddevice failed ({exc}), trying aplay")
+        print(f"kokoro-tts: sounddevice failed ({exc}), trying paplay")
 
     with tempfile.NamedTemporaryFile(suffix=".wav", prefix="qf_kokoro_", delete=False) as tmp:
         wav_path = Path(tmp.name)
 
     try:
         _write_wav(wav_path, audio, sample_rate)
+
+        # Prefer the kiosk session's PulseAudio (paplay): PortAudio's pulse
+        # backend can't find the server, and the ALSA device is held by
+        # wireplumber in the graphical session ("Device or resource busy").
+        pulse_env = os.environ.copy()
+        runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        pulse_env.setdefault("XDG_RUNTIME_DIR", runtime)
+        pulse_socket = Path(runtime) / "pulse" / "native"
+        if pulse_socket.exists():
+            pulse_env.setdefault("PULSE_SERVER", f"unix:{pulse_socket}")
+
+        global _playback_proc
+        _playback_proc = subprocess.Popen(["paplay", str(wav_path)], env=pulse_env)
+        try:
+            _playback_proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            _playback_proc.kill()
+            _playback_proc.wait(timeout=5)
+        if _playback_proc.returncode == 0:
+            _playback_proc = None
+            return
+
+        print(f"kokoro-tts: paplay exited {_playback_proc.returncode}, trying aplay")
         cmd = ["aplay", "-q"]
         if device:
             cmd.extend(["-D", device])
         cmd.append(str(wav_path))
-        global _playback_proc
         _playback_proc = subprocess.Popen(cmd)
-        _playback_proc.wait()
+        try:
+            _playback_proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            _playback_proc.kill()
+            _playback_proc.wait(timeout=5)
         if _playback_proc.returncode != 0:
             raise RuntimeError(f"aplay exited {_playback_proc.returncode}")
         _playback_proc = None
