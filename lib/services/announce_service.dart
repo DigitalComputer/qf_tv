@@ -153,7 +153,7 @@ class AnnounceService {
     try {
       final bytes = await _api
           .fetchAnnounceAudio(_token, code, counter: counterNumber, counterLabel: counterLabel)
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 20));
       if (_isValidMp3(bytes) && await _playBytes(bytes)) return;
       debugPrint('qf_tv API MP3 unplayable — Kokoro fallback');
     } catch (e) {
