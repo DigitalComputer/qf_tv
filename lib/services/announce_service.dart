@@ -22,6 +22,8 @@ class AnnounceService {
   bool _ready = false;
   bool _speaking = false;
   bool? _kokoroReachable;
+  DateTime? _lastKokoroProbe;
+  static const kokoroReProbeEvery = Duration(seconds: 30);
   final List<Future<void> Function()> _queue = [];
 
   /// Gap between announce plays while call active (matches qf_screen poll interval).
@@ -146,13 +148,25 @@ class AnnounceService {
     // Linux TV box: local Kokoro TTS (natural pt-BR on analog jack).
     if (Platform.isLinux && KokoroService.enabledOnLinux()) {
       _kokoroReachable ??= await _kokoro.isReachable();
+      // A transient outage (e.g. TTS service restarting, corrupt model being
+      // re-downloaded) disables Kokoro for the whole session otherwise.
+      if (_kokoroReachable == false) {
+        final now = DateTime.now();
+        if (_lastKokoroProbe == null ||
+            now.difference(_lastKokoroProbe!) >= kokoroReProbeEvery) {
+          _lastKokoroProbe = now;
+          _kokoroReachable = await _kokoro.isReachable();
+        }
+      }
       if (_kokoroReachable == true) {
         final text = TtsFormatter.ticketAnnouncement(code, counterNumber: counterNumber);
         if (await _kokoro.speak(text)) return;
         debugPrint('qf_tv Kokoro speak failed — trying API MP3');
         // Model/service broken (e.g. corrupt ONNX): stop retrying every
         // announce — degrades to neural API MP3, not per-call 300MB reload.
+        // Re-probe kicks in after [kokoroReProbeEvery].
         _kokoroReachable = false;
+        _lastKokoroProbe = DateTime.now();
       }
     }
 
