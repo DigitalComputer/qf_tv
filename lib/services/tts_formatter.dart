@@ -59,6 +59,17 @@ class TtsFormatter {
     return 'Senha $spelled, dirija-se ao balcão ${numberPt(counterNumber)}.';
   }
 
+  /// Same, but takes a ready-made counter label (e.g. "balcão número um").
+  /// Used when only the counter name is known (payload may lack a number).
+  static String ticketAnnouncementWithLabel(String displayCode, {String? counterLabel}) {
+    final spelled = spellCode(displayCode);
+    final label = counterLabel?.trim();
+    if (label == null || label.isEmpty) {
+      return 'Senha $spelled.';
+    }
+    return 'Senha $spelled, dirija-se ao $label.';
+  }
+
   static String spellCode(String code) {
     return code.split('').map((c) => _digitPt[c] ?? c).join(' ');
   }

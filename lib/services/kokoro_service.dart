@@ -9,7 +9,6 @@ class KokoroService {
   KokoroService({String? baseUrl}) : _baseUrl = (baseUrl ?? kokoroTtsUrl()).replaceAll(RegExp(r'/$'), '');
 
   final String _baseUrl;
-  static const _timeout = Duration(seconds: 60);
 
   static String kokoroTtsUrl() {
     const fromEnv = String.fromEnvironment('KOKORO_TTS_URL');
@@ -36,6 +35,11 @@ class KokoroService {
   }
 
   /// Blocking speak — Kokoro plays audio locally on TV hardware.
+  ///
+  /// Engine /speak is async (returns on submit); we poll /status until the
+  /// worker finishes. Budget is generous (180s) — the box CPU is slow under
+  /// load and synthesis alone can take tens of seconds. Previously a 60s
+  /// HTTP timeout killed long calls mid-play and degraded to espeak.
   Future<bool> speak(String text) async {
     if (text.trim().isEmpty) return false;
     try {
@@ -45,12 +49,26 @@ class KokoroService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'text': text}),
           )
-          .timeout(_timeout);
-      if (r.statusCode >= 200 && r.statusCode < 300) {
-        debugPrint('qf_tv Kokoro TTS ok');
-        return true;
+          .timeout(const Duration(seconds: 10));
+      if (r.statusCode < 200 || r.statusCode >= 300) {
+        debugPrint('qf_tv Kokoro TTS submit HTTP ${r.statusCode}: ${r.body}');
+        return false;
       }
-      debugPrint('qf_tv Kokoro TTS HTTP ${r.statusCode}: ${r.body}');
+      final deadline = DateTime.now().add(const Duration(seconds: 180));
+      while (DateTime.now().isBefore(deadline)) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        final s = await http
+            .get(Uri.parse('$_baseUrl/status'))
+            .timeout(const Duration(seconds: 3));
+        if (s.statusCode == 200) {
+          final body = jsonDecode(s.body) as Map<String, dynamic>;
+          if (body['busy'] != true) {
+            debugPrint('qf_tv Kokoro TTS ok');
+            return true;
+          }
+        }
+      }
+      debugPrint('qf_tv Kokoro TTS timed out waiting for playback');
     } catch (e) {
       debugPrint('qf_tv Kokoro TTS failed: $e');
     }
