@@ -208,11 +208,9 @@ class AnnounceService {
   }
 
   Future<void> _speakTicketEspeak(String code, {String? counterLabel}) async {
-    await _speakEspeak('Atenção.');
     await _speakEspeak('Senha. ${TtsFormatter.spellCode(code)}.');
-    await _speakEspeak(TtsFormatter.spellCode(code));
     if (counterLabel != null && counterLabel.isNotEmpty) {
-      await _speakEspeak('Por favor, dirija-se ao $counterLabel.');
+      await _speakEspeak('Dirija-se ao $counterLabel.');
     }
   }
 

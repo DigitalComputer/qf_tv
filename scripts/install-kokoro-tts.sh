@@ -73,11 +73,20 @@ TTS_HOST=127.0.0.1
 TTS_PORT=5050
 TTS_VOICE=pf_dora
 TTS_LANG=pt-br
-TTS_SPEED=1.0
+TTS_SPEED=0.88
 AUDIO_DEVICE=default
 EOF
   fi
   ok "Created ${INSTALL_DIR}/.env"
+else
+  # Existing installs: migrate TTS_SPEED=1.0 (robotic) → 0.88, append if absent.
+  if grep -q '^TTS_SPEED=1\.0$' "${INSTALL_DIR}/.env" 2>/dev/null; then
+    sed -i 's|^TTS_SPEED=1\.0$|TTS_SPEED=0.88|' "${INSTALL_DIR}/.env"
+    ok "TTS_SPEED 1.0 → 0.88 (${INSTALL_DIR}/.env)"
+  elif ! grep -q '^TTS_SPEED=' "${INSTALL_DIR}/.env" 2>/dev/null; then
+    echo "TTS_SPEED=0.88" >> "${INSTALL_DIR}/.env"
+    ok "TTS_SPEED=0.88 appended (${INSTALL_DIR}/.env)"
+  fi
 fi
 
 # Detect analog jack (ALC269/PCH or rk3568 ES8388)

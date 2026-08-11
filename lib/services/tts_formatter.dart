@@ -50,17 +50,13 @@ class TtsFormatter {
   ];
 
   /// Full announce phrase for Kokoro / edge-tts.
+  /// Format: `Senha <code>, dirija-se ao balcão <n>.` (code spoken letter-by-letter).
   static String ticketAnnouncement(String displayCode, {int? counterNumber}) {
     final spelled = spellCode(displayCode);
-    final parts = [
-      'Atenção.',
-      'Senha $spelled.',
-      '$spelled.',
-    ];
-    if (counterNumber != null) {
-      parts.add('Por favor, dirija-se ao balcão número ${numberPt(counterNumber)}.');
+    if (counterNumber == null) {
+      return 'Senha $spelled.';
     }
-    return parts.join(' ');
+    return 'Senha $spelled, dirija-se ao balcão ${numberPt(counterNumber)}.';
   }
 
   static String spellCode(String code) {

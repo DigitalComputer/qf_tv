@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
 import numpy as np
+from num2words import num2words
 
 _engine = None
 _playback_proc: subprocess.Popen | None = None
@@ -33,10 +35,35 @@ def _lang() -> str:
 
 
 def _speed() -> float:
+    # 0.88 reads more natural than 1.0 for PT ticket announcements.
     try:
-        return float(os.environ.get("TTS_SPEED", "1.0"))
+        return float(os.environ.get("TTS_SPEED", "0.88"))
     except ValueError:
-        return 1.0
+        return 0.88
+
+
+def preprocess_text(text: str) -> str:
+    """Make raw text sound more human:
+    - spell bare digits in pt-BR ("balcão 1" → "balcão um")
+    - keep existing spelled codes ("G P V zero zero um") untouched
+    - punctuation (commas/periods) is preserved so Kokoro breathes there
+    """
+    if not text:
+        return text
+
+    def _number(match: re.Match) -> str:
+        raw = match.group(0)
+        try:
+            n = int(raw)
+        except ValueError:
+            return raw
+        if 0 <= n <= 999999:
+            return num2words(n, lang="pt_BR")
+        return raw
+
+    text = re.sub(r"\b\d{1,6}\b", _number, text)
+    text = re.sub(r"[ ]{2,}", " ", text).strip()
+    return text
 
 
 def _audio_device() -> str | None:
@@ -157,7 +184,7 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
 
 
 def speak(text: str) -> None:
-    text = text.strip()
+    text = preprocess_text(text)
     if not text:
         return
     audio, sr = synthesize(text)
