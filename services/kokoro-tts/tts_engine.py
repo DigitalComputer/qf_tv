@@ -181,17 +181,26 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
             pulse_env.setdefault("PULSE_SERVER", f"unix:{pulse_socket}")
 
         global _playback_proc
-        _playback_proc = subprocess.Popen(["paplay", str(wav_path)], env=pulse_env)
+        paplay_err = b""
+        _playback_proc = subprocess.Popen(
+            ["paplay", str(wav_path)],
+            env=pulse_env,
+            stderr=subprocess.PIPE,
+        )
         try:
             _playback_proc.wait(timeout=120)
         except subprocess.TimeoutExpired:
             _playback_proc.kill()
             _playback_proc.wait(timeout=5)
+        paplay_err = _playback_proc.stderr.read() if _playback_proc.stderr else b""
         if _playback_proc.returncode == 0:
             _playback_proc = None
             return
 
-        print(f"kokoro-tts: paplay exited {_playback_proc.returncode}, trying aplay")
+        print(
+            f"kokoro-tts: paplay exited {_playback_proc.returncode} "
+            f"({paplay_err.decode(errors='replace').strip()}), trying aplay"
+        )
         cmd = ["aplay", "-q"]
         if device:
             cmd.extend(["-D", device])
