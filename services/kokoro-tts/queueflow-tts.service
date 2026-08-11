@@ -10,6 +10,7 @@ Group=kiosk
 WorkingDirectory=/opt/qf-kokoro-tts
 EnvironmentFile=-/opt/qf-kokoro-tts/.env
 Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
 ExecStart=/opt/qf-kokoro-tts/venv/bin/python main.py
 Restart=on-failure
 RestartSec=5

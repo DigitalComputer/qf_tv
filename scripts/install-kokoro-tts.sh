@@ -154,7 +154,10 @@ done
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "$MODEL_DIR"
 
 log "systemd unit ${SERVICE_NAME}"
+KIOSK_UID="$(id -u "${KIOSK_USER}")"
 cp "${INSTALL_DIR}/queueflow-tts.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+# %U in Environment= does not always expand to the User= uid — pin the real one.
+sed -i "s|/run/user/%U|/run/user/${KIOSK_UID}|g" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl restart "${SERVICE_NAME}"

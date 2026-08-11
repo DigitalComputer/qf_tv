@@ -147,6 +147,23 @@ def stop_playback() -> None:
     subprocess.run(["pkill", "-f", "(aplay|paplay).*qf_kokoro"], check=False)
 
 
+def _pulse_socket() -> str | None:
+    """Find the kiosk session's PulseAudio unix socket, best effort."""
+    candidates: list[Path] = []
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        candidates.append(Path(runtime) / "pulse" / "native")
+    candidates.append(Path(f"/run/user/{os.getuid()}") / "pulse" / "native")
+    for p in candidates:
+        if p.exists():
+            return f"unix:{p}"
+    # Fallback: scan other user runtime dirs (e.g. service env has wrong uid).
+    for p in sorted(Path("/run/user").glob("*/pulse/native")):
+        if p.exists():
+            return f"unix:{p}"
+    return None
+
+
 def play_audio(audio: np.ndarray, sample_rate: int) -> None:
     stop_playback()
 
@@ -174,11 +191,11 @@ def play_audio(audio: np.ndarray, sample_rate: int) -> None:
         # backend can't find the server, and the ALSA device is held by
         # wireplumber in the graphical session ("Device or resource busy").
         pulse_env = os.environ.copy()
-        runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-        pulse_env.setdefault("XDG_RUNTIME_DIR", runtime)
-        pulse_socket = Path(runtime) / "pulse" / "native"
-        if pulse_socket.exists():
-            pulse_env.setdefault("PULSE_SERVER", f"unix:{pulse_socket}")
+        pulse_socket = _pulse_socket()
+        if pulse_socket:
+            pulse_env["PULSE_SERVER"] = pulse_socket
+            sock_path = Path(pulse_socket.removeprefix("unix:"))
+            pulse_env["XDG_RUNTIME_DIR"] = str(sock_path.parent.parent)
 
         global _playback_proc
         paplay_err = b""
