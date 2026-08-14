@@ -92,4 +92,5 @@ configure_audio
 # Local Kokoro TTS on TV box (queueflow-tts.service @ 127.0.0.1:5050)
 export KOKORO_TTS_URL="${KOKORO_TTS_URL:-http://127.0.0.1:5050}"
 
-exec "${INSTALL_DIR}/qf_tv" "$@"
+# stdout/stderr -> app.log (debugPrint capture — kept after installs)
+exec "${INSTALL_DIR}/qf_tv" "$@" >> "${INSTALL_DIR}/app.log" 2>&1
