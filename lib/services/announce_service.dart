@@ -9,6 +9,15 @@ import 'linux_audio.dart';
 import 'services.dart';
 import 'tts_formatter.dart';
 
+/// The call whose audio is currently playing (screen binds to this so the
+/// displayed ticket always matches the voice).
+class CallingAnnounce {
+  final String code;
+  final String? counterName;
+
+  const CallingAnnounce({required this.code, this.counterName});
+}
+
 /// Portuguese ticket announcements — Kokoro (TV-local) → API MP3 → espeak fallback.
 ///
 /// ALL announces flow through ONE FIFO serial worker ([_enqueue]) so multiple
@@ -39,6 +48,11 @@ class AnnounceService {
   /// Per-ticket calling loops (keyed by display code).
   final Map<String, int> _loopGenerations = {};
   final Set<String> _activeLoops = {};
+
+  /// The call whose announce is currently playing. Updated the moment a job
+  /// starts speaking; kept during the repeat pause so the screen doesn't
+  /// flicker, cleared when its loop stops. Screen binds to this.
+  final ValueNotifier<CallingAnnounce?> nowAnnouncing = ValueNotifier(null);
 
   Future<void> init() async {
     if (_ready) return;
@@ -95,6 +109,7 @@ class AnnounceService {
   Future<void> startCallingLoop(
     String displayCode, {
     int? counterNumber,
+    String? counterName,
     String? counterLabel,
   }) async {
     if (displayCode.isEmpty) return;
@@ -108,7 +123,9 @@ class AnnounceService {
     final generation = (_loopGenerations[displayCode] ?? 0) + 1;
     _loopGenerations[displayCode] = generation;
     _runCallingLoop(generation, displayCode,
-        counterNumber: counterNumber, counterLabel: counterLabel);
+        counterNumber: counterNumber,
+        counterName: counterName,
+        counterLabel: counterLabel);
   }
 
   /// Stop the calling loop for [code]. With no code, stop ALL loops + audio.
@@ -116,6 +133,9 @@ class AnnounceService {
     if (code != null && code.isNotEmpty) {
       _loopGenerations[code] = (_loopGenerations[code] ?? 0) + 1;
       _activeLoops.remove(code);
+      if (nowAnnouncing.value?.code == code) {
+        nowAnnouncing.value = null;
+      }
       return;
     }
     for (final c in _activeLoops.toList()) {
@@ -123,6 +143,7 @@ class AnnounceService {
       _activeLoops.remove(c);
     }
     _jobQueue.clear();
+    nowAnnouncing.value = null;
     await stop();
   }
 
@@ -130,6 +151,7 @@ class AnnounceService {
     int generation,
     String displayCode, {
     int? counterNumber,
+    String? counterName,
     String? counterLabel,
   }) async {
     while (
@@ -139,11 +161,18 @@ class AnnounceService {
       try {
         // Awaits ITS OWN announce — the serial worker drains other tickets'
         // announces between this ticket's repeats (FIFO, never overlapping).
-        await _enqueue(() => _announce(
-              displayCode,
-              counterNumber: counterNumber,
-              counterLabel: counterLabel,
-            ));
+        await _enqueue(() async {
+          // Mark THIS ticket as the one on screen while its audio plays.
+          nowAnnouncing.value = CallingAnnounce(
+            code: displayCode,
+            counterName: counterName,
+          );
+          await _announce(
+            displayCode,
+            counterNumber: counterNumber,
+            counterLabel: counterLabel,
+          );
+        });
       } catch (e) {
         debugPrint('qf_tv calling loop announce error: $e');
       }
@@ -175,7 +204,10 @@ class AnnounceService {
 
     await init();
 
-    await _enqueue(() => _announce(displayCode, counterNumber: counterNumber, counterLabel: counterLabel));
+    await _enqueue(() async {
+      nowAnnouncing.value = CallingAnnounce(code: displayCode);
+      await _announce(displayCode, counterNumber: counterNumber, counterLabel: counterLabel);
+    });
   }
 
   Future<void> _announce(
@@ -292,6 +324,7 @@ class AnnounceService {
   }
 
   Future<void> stop() async {
+    nowAnnouncing.value = null;
     for (final c in _activeLoops.toList()) {
       _loopGenerations[c] = (_loopGenerations[c] ?? 0) + 1;
       _activeLoops.remove(c);

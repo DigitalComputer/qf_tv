@@ -106,6 +106,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
       _api = api;
       _announce = AnnounceService(api: api, token: _token);
       await _announce!.init();
+      _announce!.nowAnnouncing.addListener(_onAnnounceNow);
 
       final config = await api.getDisplayConfig(_token);
       final state = await api.getDisplayState(_token);
@@ -241,6 +242,23 @@ class _DisplayScreenState extends State<DisplayScreen> {
     _totalWaiting = state.totalWaiting;
   }
 
+  /// Sync the on-screen "now calling" block to whatever the announce worker is
+  /// actually speaking. Without this, the screen keeps showing the LAST
+  /// triggered ticket while the audio serially calls every pending senha.
+  void _onAnnounceNow() {
+    if (!mounted) return;
+    final now = _announce?.nowAnnouncing.value;
+    if (now == null || now.code.isEmpty) return;
+    setState(() {
+      _displayCode = now.code;
+      _isCalling = true;
+      final ctr = now.counterName;
+      if (ctr != null && ctr.isNotEmpty && ctr != 'Guichet') {
+        _counterName = ctr;
+      }
+    });
+  }
+
   void _startCallingAnnounce(
     String code, {
     int? counterNumber,
@@ -250,6 +268,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
     _announce?.startCallingLoop(
       code,
       counterNumber: counterNumber,
+      counterName: counterName,
       counterLabel: AnnounceService.counterPhrase(counterName),
     );
   }
@@ -325,6 +344,7 @@ class _DisplayScreenState extends State<DisplayScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _refreshDebounce?.cancel();
+    _announce?.nowAnnouncing.removeListener(_onAnnounceNow);
     HardwareKeyboard.instance.removeHandler(_handleUnlockSequence);
     _announce?.dispose();
     _reverb?.dispose();
